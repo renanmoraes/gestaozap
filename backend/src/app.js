@@ -24,7 +24,12 @@ app.set('io', io);
 
 const PORT = process.env.PORT || 3001;
 
+const { registerProcessor } = require('./services/queue.service');
+const { initWhatsApp } = require('./services/whatsapp.service');
+
 connectDB().then(() => {
+  registerProcessor(io);
+  initWhatsApp(io);
   server.listen(PORT, () => console.log(`Backend running on :${PORT}`));
 });
 
