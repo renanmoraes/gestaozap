@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 
 jest.mock('../config/db', () => ({ connectDB: jest.fn().mockResolvedValue(true) }));
 jest.mock('../config/queue', () => ({ sendQueue: { process: jest.fn(), add: jest.fn() } }));
-jest.mock('../services/whatsapp.service', () => ({ initWhatsApp: jest.fn(), getStatus: jest.fn(() => 'disconnected') }));
 
 const { app } = require('../app');
 
