@@ -5,16 +5,18 @@ import api from '../api';
 export default function Session() {
   const [status, setStatus] = useState('loading');
   const [qr, setQr] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     api.get('/api/session').then(r => setStatus(r.data.status));
   }, []);
 
   useSocket({
-    qr: ({ qr: qrData }) => { setQr(qrData); setStatus('qr_ready'); },
-    'session:ready': () => { setStatus('connected'); setQr(null); },
+    qr: ({ qr: qrData }) => { setQr(qrData); setStatus('qr_ready'); setError(null); },
+    'session:ready': () => { setStatus('connected'); setQr(null); setError(null); },
     'session:disconnected': () => { setStatus('disconnected'); setQr(null); },
     'session:status': ({ status: s }) => setStatus(s),
+    'session:error': ({ message }) => { setStatus('disconnected'); setError(message); },
   });
 
   const start = async () => {
@@ -42,6 +44,12 @@ export default function Session() {
         <div className="space-y-2">
           <p className="text-sm text-gray-600">Escaneie o QR Code com seu WhatsApp</p>
           <img src={qr} alt="QR Code" className="w-64 h-64 border rounded" />
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded text-sm">
+          Erro ao iniciar: {error}
         </div>
       )}
 

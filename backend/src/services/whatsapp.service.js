@@ -36,7 +36,13 @@ function initWhatsApp(io) {
     io.emit('session:status', { status });
   });
 
-  client.initialize();
+  client.initialize().catch((err) => {
+    console.error('WhatsApp init error:', err.message);
+    status = 'disconnected';
+    client = null;
+    io.emit('session:error', { message: err.message });
+    io.emit('session:status', { status });
+  });
 }
 
 function getStatus() {
