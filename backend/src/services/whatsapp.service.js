@@ -145,6 +145,28 @@ function initWhatsApp(io) {
     io.emit('session:status', { status });
   });
 
+  client.on('message', async (msg) => {
+    if (msg.fromMe) return;
+    const text = (msg.body || '').trim().toLowerCase();
+    if (!isOptOutText(text)) return;
+
+    // Remove qualquer sufixo @c.us / @s.whatsapp.net / @lid / etc.
+    const phone = msg.from.replace(/@\S+$/, '');
+    const Contact = require('../models/contact.model');
+    // collectPhoneKeys gera variantes normalizadas. Se o contato foi importado
+    // com formato não coberto, findOneAndUpdate retorna null (ignorado silenciosamente).
+    const contact = await Contact.findOneAndUpdate(
+      { phone: { $in: collectPhoneKeys(phone) }, optedOut: { $ne: true } },
+      { optedOut: true, optOutAt: new Date() },
+      { new: true },
+    ).catch((e) => { console.error('[opt-out] db error:', e.message); return null; });
+
+    if (!contact) return;
+
+    io.emit('contact:opted-out', { phone: contact.phone, name: contact.name });
+    console.log(`[opt-out] ${contact.name} (${contact.phone}) saiu via mensagem`);
+  });
+
   client.initialize().catch((err) => {
     console.error('WhatsApp init error:', err.message);
     status = 'disconnected';
