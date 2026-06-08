@@ -57,6 +57,7 @@ Para evitar ambiguidade, o acesso é definido por **duas regras separadas**:
 
 - **Pode logar:** sempre que o `user` existir e estiver `active`. Login nunca depende de `approval_status` nem de contrato — isso garante que contas `pending`/`rejected`/trial-expirado consigam entrar e ver a tela informativa correta.
 - **Pode usar o produto (envios/rotas de negócio):** `tenant.approval_status='approved'` **E** existe um `contract` do tenant com `status='active'` **E** (`expires_at IS NULL` OU `expires_at > now`). Avaliado por um helper único (ex.: `tenantHasActiveAccess(tenant)`), usado pelo middleware de rotas de negócio.
+  - **Fonte de verdade:** o gate decide por `contract.status='active'` (o cron é quem vira `expired` no fim do trial). A comparação `expires_at > now` é uma rede de segurança para o caso de o cron atrasar — as duas concordam (contrato `expired` falha na cláusula de `status`), então não há duplo-gate.
 
 O middleware de negócio, quando o acesso é negado, retorna um **código de estado** (`pending_approval` | `rejected` | `trial_expired` | `no_contract`) que o frontend usa para escolher a tela.
 
