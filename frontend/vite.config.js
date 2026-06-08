@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3002,
       host: true,
+      // Permite o domínio de produção e todos os subdomínios de tenant
+      // (frontend roda atrás do nginx em 127.0.0.1:3002).
+      allowedHosts: ['.gestaozap.digital', 'localhost', '127.0.0.1'],
       watch: { usePolling: true },
       proxy: {
         '/api': { target: proxyTarget, changeOrigin: true },
