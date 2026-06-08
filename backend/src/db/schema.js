@@ -254,12 +254,34 @@ const quickReplies = pgTable('quick_replies', {
   updatedAt:   timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+const tenantUsers = pgTable('tenant_users', {
+  id:        uuid('id').defaultRandom().primaryKey(),
+  tenantId:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  email:     varchar('email', { length: 255 }).notNull(),
+  role:      varchar('role', { length: 20 }).notNull().default('member'),
+  active:    boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const magicLinkTokens = pgTable('magic_link_tokens', {
+  id:        uuid('id').defaultRandom().primaryKey(),
+  tenantId:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  email:     varchar('email', { length: 255 }).notNull(),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt:    timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 module.exports = {
   conversations,
   messages,
   quickReplies,
   affiliates,
   affiliateReferrals,
+  tenantUsers,
+  magicLinkTokens,
   sendStatusEnum,
   contractStatusEnum,
   paymentTypeEnum,

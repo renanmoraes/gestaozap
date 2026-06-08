@@ -288,6 +288,33 @@ async function runMigrations(pool) {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_system_events_tenant_created ON system_events(tenant_id, created_at DESC);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_system_events_unresolved ON system_events(tenant_id, severity) WHERE resolved = false;`);
 
+    // ─── Tenant Users & Magic Link Authentication ───
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tenant_users (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        email         VARCHAR(255) NOT NULL,
+        role          VARCHAR(20) NOT NULL DEFAULT 'member',
+        active        BOOLEAN NOT NULL DEFAULT true,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, email)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magic_link_tokens (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        email         VARCHAR(255) NOT NULL,
+        token_hash    VARCHAR(64) NOT NULL UNIQUE,
+        expires_at    TIMESTAMPTZ NOT NULL,
+        used_at       TIMESTAMPTZ,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, email, token_hash)
+      );
+    `);
+
     // Consentimento por categoria (LGPD-friendly)
     await client.query(`
       ALTER TABLE contacts
