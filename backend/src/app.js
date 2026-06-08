@@ -56,27 +56,21 @@ const tenantResolver = require('./middleware/tenantResolver');
 const requireAdmin = require('./middleware/requireAdmin');
 const requireTenant = require('./middleware/requireTenant');
 
-// AUTH_REQUIRED=true → exige token em todas as rotas de negócio (ativar quando frontend tiver login)
-// AUTH_REQUIRED=false (padrão dev) → funciona sem token usando tenant do subdomínio
-const authGuard = process.env.AUTH_REQUIRED === 'true'
-  ? requireTenant
-  : (req, res, next) => next();
+// AUTH_REQUIRED=false apenas em dev explícito; produção exige token
+const authRequired = process.env.AUTH_REQUIRED !== 'false'
+  && (process.env.AUTH_REQUIRED === 'true' || process.env.NODE_ENV === 'production');
+const authGuard = authRequired ? requireTenant : (req, res, next) => next();
 
 // Afiliados: rotas públicas (/validate/:code, /register) + admin protegido
 const affiliatesRoutes = require('./routes/affiliates.routes');
-app.use('/api/admin/affiliates', requireAdmin, affiliatesRoutes);      // admin (precisa vir ANTES da rota pública)
-app.use('/api/affiliates', affiliatesRoutes);                          // público
+app.use('/api/admin/affiliates', requireAdmin, affiliatesRoutes);
+app.use('/api/affiliates', affiliatesRoutes);
 
-// Login admin é público; demais rotas admin exigem requireAdmin
 const adminRoutes = require('./routes/admin.routes');
-app.post('/api/admin/login', adminRoutes.loginHandler);
 app.use('/api/admin', requireAdmin, adminRoutes);
 
 // Rotas de auth (públicas por design — é onde o token é criado)
 app.use('/api/auth', require('./routes/auth.routes'));
-
-// Novo sistema de autenticação (email/senha)
-app.use('/api/auth-new', require('./routes/auth-new.routes'));
 
 // Rotas de negócio: tenantResolver resolve o tenant + authGuard verifica token (quando AUTH_REQUIRED)
 app.use('/api/session', tenantResolver, authGuard, require('./routes/session.routes'));

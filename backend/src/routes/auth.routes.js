@@ -1,142 +1,69 @@
 const router = require('express').Router();
-const { createHash, randomBytes } = require('crypto');
-const { eq, and, gt } = require('drizzle-orm');
+const { eq } = require('drizzle-orm');
 const { getDb } = require('../db');
-const { tenants, tenantSessions } = require('../db/schema');
+const { tenants } = require('../db/schema');
 const { getConfig } = require('../config/platform');
 const tenantResolver = require('../middleware/tenantResolver');
-const { generateMagicLink, verifyMagicLink } = require('../services/magic-link.service');
+const requireAuth = require('../middleware/requireAuth');
+const {
+  login,
+  createSession,
+  validateSession,
+  logout,
+  changePassword,
+} = require('../services/auth.service');
 
-function generateToken() {
-  return randomBytes(32).toString('hex');
+function isAdminHost(req) {
+  const slug = req.headers['x-tenant-slug'];
+  if (slug === 'admin') return true;
+  const host = String(req.headers.host || '').split(':')[0];
+  return host.split('.')[0] === 'admin';
 }
 
-function hashToken(raw) {
-  return createHash('sha256').update(raw).digest('hex');
+function buildAuthResponse(auth, session) {
+  const termsVersion = getConfig('terms_current_version', '2.0');
+  const tenant = auth.tenant;
+  const termsAccepted = tenant
+    ? Boolean(tenant.termsAcceptedAt) && tenant.termsVersion === termsVersion
+    : true;
+
+  return {
+    token: session.token,
+    expiresAt: session.expiresAt,
+    user: auth.user,
+    company: auth.company,
+    tenantId: tenant?.id || null,
+    tenantName: tenant?.name || auth.company.name,
+    slug: tenant?.slug || null,
+    registeredPhone: tenant?.registeredPhone || null,
+    termsAccepted,
+    termsVersion,
+  };
 }
-
-// Todas as rotas de auth precisam do tenantResolver
-router.use(tenantResolver);
-
-/**
- * POST /api/auth/send-magic-link
- * Envia um magic link por email para o usuário fazer login.
- * Body: { email }
- */
-router.post('/send-magic-link', async (req, res) => {
-  try {
-    const { email } = req.body;
-    const tenant = req.tenant;
-
-    if (!email || !email.includes('@')) {
-      return res.status(400).json({ error: 'Email inválido' });
-    }
-
-    if (!tenant || !tenant.id) {
-      return res.status(404).json({ error: 'Conta não encontrada' });
-    }
-
-    await generateMagicLink(tenant.id, email, tenant.name, tenant.slug);
-
-    res.json({
-      ok: true,
-      message: `Link de acesso enviado para ${email}. Verifique seu email (e spam) nos próximos minutos.`,
-    });
-  } catch (err) {
-    console.error('auth send-magic-link:', err);
-    res.status(500).json({ error: 'Erro ao enviar email. Tente novamente em alguns instantes.' });
-  }
-});
-
-/**
- * POST /api/auth/verify-magic-link
- * Valida o token do magic link e cria uma sessão.
- * Body: { token }
- */
-router.post('/verify-magic-link', async (req, res) => {
-  try {
-    const { token } = req.body;
-    const tenant = req.tenant;
-
-    if (!token) {
-      return res.status(400).json({ error: 'Token não fornecido' });
-    }
-
-    if (!tenant || !tenant.id) {
-      return res.status(404).json({ error: 'Conta não encontrada' });
-    }
-
-    // Verifica o magic link
-    const validation = await verifyMagicLink(tenant.id, token);
-    if (!validation.valid) {
-      return res.status(401).json({ error: validation.error });
-    }
-
-    // Cria sessão tenant
-    const db = getDb();
-    const rawToken = randomBytes(32).toString('hex');
-    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 dias
-
-    await db.insert(tenantSessions).values({
-      tenantId: tenant.id,
-      tokenHash,
-      expiresAt,
-    });
-
-    const termsVersion = getConfig('terms_current_version', '1.0');
-    const termsAccepted = Boolean(tenant.termsAcceptedAt) && tenant.termsVersion === termsVersion;
-
-    res.json({
-      token: rawToken,
-      tenantId: tenant.id,
-      tenantName: tenant.name,
-      email: validation.email,
-      termsAccepted,
-      termsVersion,
-      expiresAt,
-    });
-  } catch (err) {
-    console.error('auth verify-magic-link:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 /**
  * POST /api/auth/login
- * Cria uma sessão para o tenant atual (identificado pelo subdomínio).
- * Retorna token + se os termos foram aceitos.
+ * Body: { companyId, email, password }
  */
-router.post('/login', async (req, res) => {
+router.post('/login', tenantResolver, async (req, res) => {
   try {
-    const db = getDb();
-    const tenant = req.tenant;
+    const { companyId, email, password } = req.body || {};
 
-    if (!tenant || !tenant.id) {
-      return res.status(404).json({ error: 'Conta não encontrada' });
+    if (companyId === undefined || companyId === null || String(companyId).trim() === '' || !email || !password) {
+      return res.status(400).json({ error: 'Identificador, email e senha são obrigatórios' });
     }
 
-    const rawToken = generateToken();
-    const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 dias
-
-    await db.insert(tenantSessions).values({
-      tenantId: tenant.id,
-      tokenHash,
-      expiresAt,
+    const result = await login(String(companyId).trim(), email, password, {
+      tenantId: req.tenant?.id || null,
+      isAdminHost: isAdminHost(req) || Boolean(req.isAdminHost),
     });
 
-    const termsVersion = getConfig('terms_current_version', '1.0');
-    const termsAccepted = Boolean(tenant.termsAcceptedAt) && tenant.termsVersion === termsVersion;
+    if (!result.valid) {
+      return res.status(401).json({ error: result.error });
+    }
 
-    res.json({
-      token: rawToken,
-      tenantId: tenant.id,
-      tenantName: tenant.name,
-      termsAccepted,
-      termsVersion,
-      expiresAt,
-    });
+    const session = await createSession(result.user.id, result.company.id);
+    res.json(buildAuthResponse(result, session));
   } catch (err) {
     console.error('auth login:', err);
     res.status(500).json({ error: err.message });
@@ -144,19 +71,78 @@ router.post('/login', async (req, res) => {
 });
 
 /**
- * POST /api/auth/terms
- * Registra aceite dos termos para o tenant atual.
- * Pode ser chamado sem token (antes do login) ou com token.
+ * GET /api/auth/me
  */
-router.post('/terms', async (req, res) => {
+router.get('/me', requireAuth, async (req, res) => {
   try {
-    const db = getDb();
-    const tenant = req.tenant;
-    if (!tenant || !tenant.id) {
-      return res.status(404).json({ error: 'Conta não encontrada' });
+    const termsVersion = getConfig('terms_current_version', '2.0');
+    const tenant = req.authTenant;
+
+    if (tenant && req.headers['x-tenant-slug'] && req.headers['x-tenant-slug'] !== 'admin') {
+      const db = getDb();
+      const [resolved] = await db.select().from(tenants).where(eq(tenants.slug, req.headers['x-tenant-slug']));
+      if (resolved && tenant.id !== resolved.id) {
+        return res.status(403).json({ error: 'Sessão não pertence a esta conta', code: 'TENANT_MISMATCH' });
+      }
     }
 
-    const termsVersion = getConfig('terms_current_version', '1.0');
+    res.json({
+      user: req.user,
+      company: req.company,
+      tenantId: tenant?.id || null,
+      tenantName: tenant?.name || req.company.name,
+      slug: tenant?.slug || null,
+      registeredPhone: tenant?.registeredPhone || null,
+      termsAccepted: tenant
+        ? Boolean(tenant.termsAcceptedAt) && tenant.termsVersion === termsVersion
+        : true,
+      termsVersion,
+    });
+  } catch (err) {
+    console.error('auth me:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/auth/change-password
+ */
+router.post('/change-password', requireAuth, async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body || {};
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'Senhas não fornecidas' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Nova senha deve ter pelo menos 8 caracteres' });
+    }
+
+    const result = await changePassword(req.user.id, oldPassword, newPassword);
+    if (!result.valid) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('auth change-password:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/auth/terms
+ */
+router.post('/terms', tenantResolver, requireAuth, async (req, res) => {
+  try {
+    const tenant = req.authTenant || req.tenant;
+    if (!tenant?.id) {
+      return res.status(400).json({ error: 'Termos aplicáveis apenas a contas de cliente' });
+    }
+
+    const db = getDb();
+    const termsVersion = getConfig('terms_current_version', '2.0');
     await db.update(tenants)
       .set({ termsAcceptedAt: new Date(), termsVersion, updatedAt: new Date() })
       .where(eq(tenants.id, tenant.id));
@@ -170,44 +156,16 @@ router.post('/terms', async (req, res) => {
 
 /**
  * POST /api/auth/logout
- * Invalida o token atual (deleta da tabela).
  */
 router.post('/logout', async (req, res) => {
   try {
     const authHeader = req.headers.authorization || '';
     if (authHeader.startsWith('Bearer ')) {
-      const rawToken = authHeader.slice(7);
-      const tokenHash = hashToken(rawToken);
-      const db = getDb();
-      await db.delete(tenantSessions).where(eq(tenantSessions.tokenHash, tokenHash));
+      await logout(authHeader.slice(7));
     }
     res.json({ ok: true });
   } catch (err) {
     console.error('auth logout:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * GET /api/auth/me
- * Retorna dados do tenant atual + status da sessão.
- */
-router.get('/me', async (req, res) => {
-  try {
-    const tenant = req.tenant;
-    if (!tenant) return res.status(401).json({ error: 'Não autenticado' });
-
-    const termsVersion = getConfig('terms_current_version', '1.0');
-    res.json({
-      tenantId: tenant.id,
-      tenantName: tenant.name,
-      slug: tenant.slug,
-      registeredPhone: tenant.registeredPhone,
-      termsAccepted: Boolean(tenant.termsAcceptedAt) && tenant.termsVersion === termsVersion,
-      termsVersion,
-    });
-  } catch (err) {
-    console.error('auth me:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -22,6 +22,13 @@ async function tenantResolver(req, res, next) {
       return next();
     }
 
+    // Painel admin — sem tenant de negócio
+    if (slug === 'admin') {
+      req.tenant = null;
+      req.isAdminHost = true;
+      return next();
+    }
+
     const db = getDb();
     const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, slug));
 

@@ -59,7 +59,7 @@ async function seedAdminCompanyAndUser(pool) {
     // Criar empresa admin (ID 0)
     const companyResult = await client.query(`
       INSERT INTO companies (company_id, name, active)
-      VALUES (0, 'GestãoZap - Administração', true)
+      VALUES ('0', 'GestãoZap - Administração', true)
       ON CONFLICT (company_id) DO NOTHING
       RETURNING id
     `);
@@ -71,7 +71,7 @@ async function seedAdminCompanyAndUser(pool) {
     } else {
       // Se já existe, pega o ID
       const existingCompany = await client.query(`
-        SELECT id FROM companies WHERE company_id = 0
+        SELECT id FROM companies WHERE company_id = '0'
       `);
       companyId = existingCompany.rows[0]?.id;
     }

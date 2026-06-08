@@ -256,7 +256,8 @@ const quickReplies = pgTable('quick_replies', {
 
 const companies = pgTable('companies', {
   id:        uuid('id').defaultRandom().primaryKey(),
-  companyId: integer('company_id').notNull().unique(),
+  companyId: varchar('company_id', { length: 50 }).notNull().unique(),
+  tenantId:  uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
   name:      varchar('name', { length: 255 }).notNull(),
   active:    boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -281,6 +282,15 @@ const userCompany = pgTable('user_company', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+const userSessions = pgTable('user_sessions', {
+  id:        uuid('id').defaultRandom().primaryKey(),
+  userId:    uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  companyId: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 module.exports = {
   conversations,
   messages,
@@ -290,6 +300,7 @@ module.exports = {
   companies,
   users,
   userCompany,
+  userSessions,
   sendStatusEnum,
   contractStatusEnum,
   paymentTypeEnum,

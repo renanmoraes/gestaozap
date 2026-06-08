@@ -292,12 +292,26 @@ async function runMigrations(pool) {
     await client.query(`
       CREATE TABLE IF NOT EXISTS companies (
         id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        company_id    INTEGER NOT NULL UNIQUE,
+        company_id    VARCHAR(50) NOT NULL UNIQUE,
         name          VARCHAR(255) NOT NULL,
         active        BOOLEAN NOT NULL DEFAULT true,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+    `);
+
+    // Migra company_id numérico → identificador textual
+    await client.query(`
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'companies'
+            AND column_name = 'company_id' AND data_type = 'integer'
+        ) THEN
+          ALTER TABLE companies
+            ALTER COLUMN company_id TYPE VARCHAR(50) USING company_id::text;
+        END IF;
+      END $$;
     `);
 
     await client.query(`
@@ -321,6 +335,28 @@ async function runMigrations(pool) {
         created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (user_id, company_id)
       );
+    `);
+
+    await client.query(`
+      ALTER TABLE companies
+        ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE;
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_companies_tenant_id ON companies(tenant_id);
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        token_hash  VARCHAR(64) NOT NULL UNIQUE,
+        expires_at  TIMESTAMPTZ NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(token_hash);
     `);
 
     // Consentimento por categoria (LGPD-friendly)
