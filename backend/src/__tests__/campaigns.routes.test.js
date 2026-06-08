@@ -5,7 +5,17 @@ const path = require('path');
 const fs = require('fs');
 
 jest.mock('../config/db', () => ({ connectDB: jest.fn().mockResolvedValue(true) }));
-jest.mock('../config/queue', () => ({ sendQueue: { process: jest.fn() } }));
+jest.mock('../config/queue', () => ({
+  sendQueue: {
+    process: jest.fn(),
+    client: { get: jest.fn(), del: jest.fn(), set: jest.fn() },
+    getJobs: jest.fn().mockResolvedValue([]),
+    getJob: jest.fn(),
+  },
+  requestCancelFlag: jest.fn(),
+  isCancelRequested: jest.fn().mockResolvedValue(false),
+  clearCancelFlag: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('../services/whatsapp.service', () => ({ initWhatsApp: jest.fn(), getStatus: jest.fn(() => 'disconnected') }));
 jest.mock('../services/queue.service', () => ({ registerProcessor: jest.fn() }));
 

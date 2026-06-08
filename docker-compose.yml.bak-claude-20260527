@@ -1,0 +1,63 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/uploads:/app/uploads
+      - wwebjs_auth:/app/.wwebjs_auth
+    environment:
+      # Mesma base de horário do usuário (ex.: Brasil); senão getHours() no worker usa UTC e a janela 8–20 pode pular envios enquanto o front mostra “dentro do horário”.
+      - TZ=America/Sao_Paulo
+      - MONGO_URI=mongodb://mongodb:27017/wa-invites
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PORT=3001
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/vite.config.js:/app/vite.config.js
+    environment:
+      # Proxy /api e /socket.io → backend (sem VITE_API_URL o browser usa o mesmo host :3002)
+      - VITE_BACKEND_PROXY_TARGET=http://backend:3001
+      - VITE_API_URL=
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "127.0.0.1:27017:27017" # host → Compass / mongosh (URI: mongodb://127.0.0.1:27017/wa-invites)
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  mongo_data:
+  redis_data:
+  wwebjs_auth:

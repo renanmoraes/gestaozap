@@ -1,10 +1,3 @@
-const { Schema, model } = require('mongoose');
-
-const contactSchema = new Schema({
-  name: { type: String, required: true },
-  phone: { type: String, required: true },
-  tags: [String],
-  active: { type: Boolean, default: true },
-}, { timestamps: true });
-
-module.exports = model('Contact', contactSchema);
+// Modelo substituído por Drizzle ORM — use getDb() + schema.contacts diretamente nas rotas
+const { contacts } = require('../db/schema');
+module.exports = contacts;

@@ -1,4 +1,4 @@
-# WA Invites — Implementation Plan
+# GestãoZap — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -15,7 +15,7 @@
 ## File Structure
 
 ```
-wa-invites/
+gestaozap/
 ├── docker-compose.yml
 ├── .env.example
 ├── backend/
@@ -80,7 +80,7 @@ services:
       - ./backend/uploads:/app/uploads
       - wwebjs_auth:/app/.wwebjs_auth
     environment:
-      - MONGO_URI=mongodb://mongodb:27017/wa-invites
+      - MONGO_URI=mongodb://mongodb:27017/gestaozap
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - PORT=3001
@@ -116,7 +116,7 @@ volumes:
 - [ ] **Step 2: Write .env.example**
 
 ```env
-MONGO_URI=mongodb://localhost:27017/wa-invites
+MONGO_URI=mongodb://localhost:27017/gestaozap
 REDIS_HOST=localhost
 REDIS_PORT=6379
 PORT=3001
@@ -144,7 +144,7 @@ git commit -m "feat: docker compose infrastructure (mongo, redis, backend, front
 
 ```json
 {
-  "name": "wa-invites-backend",
+  "name": "gestaozap-backend",
   "version": "1.0.0",
   "main": "src/app.js",
   "scripts": {
@@ -196,7 +196,7 @@ CMD ["node", "src/app.js"]
 const mongoose = require('mongoose');
 
 async function connectDB() {
-  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/wa-invites');
+  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/gestaozap');
   console.log('MongoDB connected');
 }
 
@@ -1233,7 +1233,7 @@ git commit -m "feat: wire whatsapp init and queue processor on startup"
 
 ```json
 {
-  "name": "wa-invites-frontend",
+  "name": "gestaozap-frontend",
   "version": "1.0.0",
   "scripts": {
     "dev": "vite --host",
@@ -1302,7 +1302,7 @@ export default {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WA Invites</title>
+    <title>GestãoZap</title>
   </head>
   <body>
     <div id="root"></div>
@@ -1401,7 +1401,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <nav className="bg-green-600 text-white px-6 py-3 flex gap-6">
-        <span className="font-bold mr-4">WA Invites</span>
+        <span className="font-bold mr-4">GestãoZap</span>
         {nav.map(n => (
           <NavLink
             key={n.to}
@@ -2028,7 +2028,7 @@ Expected: All PASS
 - [ ] **Step 5: Final commit**
 ```bash
 git add .
-git commit -m "feat: wa-invites complete — local WhatsApp batch invite tool"
+git commit -m "feat: gestaozap complete — local WhatsApp batch invite tool"
 ```
 
 ---

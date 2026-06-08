@@ -1,7 +1,7 @@
 # Design: UI Polish + Opt-out Automático
 
 **Data:** 2026-05-26  
-**Projeto:** wa-invites  
+**Projeto:** gestaozap  
 **Escopo:** Queue.jsx redesign, History.jsx redesign + métricas, opt-out automático via WhatsApp
 
 ---

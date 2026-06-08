@@ -1,0 +1,184 @@
+{
+  "total_contacts": 43165,
+  "duplicates_in_export_dropped": 0,
+  "batch_size": 1000,
+  "batch_count": 44,
+  "files": [
+    {
+      "file": "contacts-batch-001.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-002.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-003.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-004.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-005.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-006.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-007.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-008.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-009.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-010.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-011.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-012.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-013.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-014.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-015.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-016.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-017.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-018.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-019.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-020.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-021.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-022.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-023.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-024.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-025.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-026.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-027.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-028.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-029.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-030.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-031.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-032.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-033.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-034.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-035.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-036.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-037.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-038.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-039.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-040.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-041.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-042.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-043.json",
+      "count": 1000
+    },
+    {
+      "file": "contacts-batch-044.json",
+      "count": 165
+    }
+  ]
+}

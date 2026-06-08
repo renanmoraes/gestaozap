@@ -1,0 +1,94 @@
+<h2>Layout da Fila de envios (Queue)</h2>
+<p class="subtitle">Os dados já existem — como apresentar melhor cada job?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:12px;font-family:sans-serif;font-size:11px">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #e2e8f0">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#0f172a">Fila de envios</div>
+          <div style="font-size:10px;color:#94a3b8">2 jobs ativos</div>
+        </div>
+        <div style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:10px;color:#475569">↻ Atualizar</div>
+      </div>
+      <!-- Job card 1 - active with progress -->
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:#0f172a">Festa Junho 2025</div>
+            <div style="font-size:9px;color:#94a3b8">Job #42 · criado 26/05 14:30</div>
+          </div>
+          <span style="background:#eff6ff;color:#3b82f6;border:1px solid #bfdbfe;border-radius:999px;padding:2px 8px;font-size:9px;font-weight:500">● Em andamento</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="flex:1;background:#f1f5f9;border-radius:999px;height:6px">
+            <div style="background:#4f46e5;height:6px;border-radius:999px;width:62%"></div>
+          </div>
+          <span style="font-size:10px;font-weight:600;color:#4f46e5">62%</span>
+        </div>
+        <div style="font-size:9px;color:#94a3b8;margin-top:4px">77 de 124 contatos enviados</div>
+      </div>
+      <!-- Job card 2 - failed -->
+      <div style="background:white;border:1px solid #fee2e2;border-radius:10px;padding:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:#0f172a">Aniversário Maria</div>
+            <div style="font-size:9px;color:#94a3b8">Job #38 · criado 25/05 10:15</div>
+          </div>
+          <span style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:999px;padding:2px 8px;font-size:9px;font-weight:500">✗ Falhou</span>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:6px">
+          <div style="background:white;border:1px solid #e2e8f0;border-radius:6px;padding:2px 8px;font-size:9px;color:#475569">↺ Retentar</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Cards com nome da campanha</h3>
+      <p>Cada job mostra o nome da campanha em destaque, barra de progresso grande e contagem de contatos. Atual já tem a estrutura — é só polir.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:12px;font-family:sans-serif;font-size:11px">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #e2e8f0">
+        <div style="font-size:13px;font-weight:600;color:#0f172a">Fila de envios</div>
+        <div style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:10px;color:#475569">↻</div>
+      </div>
+      <!-- Table-style list -->
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 70px;gap:4px;padding:5px 8px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:9px;font-weight:600;color:#64748b;text-transform:uppercase">
+          <span>Campanha</span><span>Status</span><span>Progresso</span><span style="text-align:right">Ação</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 70px;gap:4px;padding:6px 8px;border-bottom:1px solid #f1f5f9;align-items:center">
+          <div>
+            <div style="font-size:11px;font-weight:500;color:#0f172a">Festa Junho 2025</div>
+            <div style="font-size:9px;color:#94a3b8">Job #42</div>
+          </div>
+          <span style="background:#eff6ff;color:#3b82f6;border-radius:999px;padding:1px 6px;font-size:9px;white-space:nowrap">Em andamento</span>
+          <div>
+            <div style="background:#f1f5f9;border-radius:999px;height:4px"><div style="background:#4f46e5;height:4px;border-radius:999px;width:62%"></div></div>
+            <div style="font-size:9px;color:#4f46e5;margin-top:1px">62%</div>
+          </div>
+          <div style="text-align:right;font-size:9px;color:#ef4444">✕ Cancelar</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 70px;gap:4px;padding:6px 8px;align-items:center">
+          <div>
+            <div style="font-size:11px;font-weight:500;color:#0f172a">Aniversário Maria</div>
+            <div style="font-size:9px;color:#94a3b8">Job #38</div>
+          </div>
+          <span style="background:#fef2f2;color:#ef4444;border-radius:999px;padding:1px 6px;font-size:9px">Falhou</span>
+          <div style="font-size:9px;color:#94a3b8">—</div>
+          <div style="text-align:right;font-size:9px;color:#4f46e5">↺ Retentar</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Tabela compacta</h3>
+      <p>Lista tabular com colunas fixas. Mais densa, cabe mais jobs visíveis sem scroll. Bom quando há muitos jobs simultâneos.</p>
+    </div>
+  </div>
+
+</div>

@@ -2,48 +2,48 @@ const path = require('path');
 const fs = require('fs');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
+const { eq, and, inArray } = require('drizzle-orm');
 const { classifyReply, isGreetingReply } = require('../utils/reply-classifier.util');
-const { collectPhoneKeys } = require('../utils/phone.util');
+const { collectPhoneKeys, normalizePhoneForWhatsApp, phonesMatchLoose } = require('../utils/phone.util');
 
-/** Histórico carregado no analyze (wwebjs: ultimos N ou pagina com loadEarlierMsgs) */
 const READ_MSG_LIMIT = Math.min(50000, Math.max(2000, Number(process.env.WWEBJS_READ_MSG_LIMIT) || 15000));
-/** 1 = antes de re-fetch, tenta `chat.syncHistory()` quando `fetchMessages` vem vazio (mais lento, útil p/ depuração) */
 const CHAT_INDEX_SYNC_RETRY = /^1|true|yes$/i.test(String(process.env.WWEBJS_CHAT_INDEX_SYNC || ''));
-/** 1 = logs [chatIndex] (samples, janela, resumo) */
 const WWEBJS_DEBUG = /^1|true|yes$/i.test(String(process.env.WWEBJS_DEBUG || ''));
-/** Só varre chats cuja última atividade (Chat.timestamp) caia após 1º envio −N s e antes do último +M s (padrão: 2h antes, 24h depois) */
 const CHAT_INDEX_PAD_BEFORE_SEC = Math.max(0, Number(process.env.WWEBJS_CHAT_INDEX_PAD_BEFORE_SEC) || 7200);
 const CHAT_INDEX_PAD_AFTER_SEC = Math.max(0, Number(process.env.WWEBJS_CHAT_INDEX_PAD_AFTER_SEC) || 86400);
-/**
- * 1 = não chama `fetchMessages` ao montar o índice timestamp→chat; usa só `lastMessage` da lista (evita
- * falhas do WA tipo `waitForChatLoading` e deixa a análise muito mais rápida). 0 = tenta fetch (lento, pode quebrar com WA novo).
- */
 const CHAT_INDEX_SKIP_FETCH = !/^0|false|no$/i.test(String(process.env.WWEBJS_CHAT_INDEX_SKIP_FETCH || '1'));
-/** Quando o índice tiver 1 chat por envio, para de abrir o resto da lista (não piora o *best match* de timestamp se chats já vêm do mais recente) */
 const CHAT_INDEX_EARLY_STOP = !/^0|false|no$/i.test(String(process.env.WWEBJS_CHAT_INDEX_EARLY_STOP || '1'));
 
-/** Same base path as LocalAuth + default clientId → `session` */
 const WWEBJS_DATA_PATH = path.resolve(process.env.WWEBJS_AUTH_PATH || '.wwebjs_auth');
-const SESSION_USER_DATA_DIR = path.join(WWEBJS_DATA_PATH, 'session');
-
 const CHROME_LOCK_NAMES = new Set(['SingletonLock', 'SingletonSocket', 'SingletonCookie']);
 
-/** Erros de `pupPage.evaluate` vêm como string com stack `<anonymous>:N` — não passar o objeto Error ao `console` (evita spam de stack). */
+/* ─── Estado por tenant ──────────────────────────────────────── */
+
+/**
+ * Map de tenantId → { client, status, consecutiveFailures }
+ * status: 'disconnected' | 'qr_ready' | 'connected'
+ */
+const tenantClients = new Map();
+
+function getTenantState(tenantId) {
+  if (!tenantClients.has(tenantId)) {
+    tenantClients.set(tenantId, { client: null, status: 'disconnected', consecutiveFailures: 0 });
+  }
+  return tenantClients.get(tenantId);
+}
+
+function getClientFor(tenantId) {
+  return getTenantState(tenantId).client;
+}
+
+/* ─── Helpers ────────────────────────────────────────────────── */
+
 function stringFromWwebjsErr(err) {
   if (err == null) return '';
   if (typeof err === 'string') return err;
   const m = err.message;
-  if (typeof m === 'string' && m.trim()) return m.trim();
-  return String(err);
+  return (typeof m === 'string' && m.trim()) ? m.trim() : String(err);
 }
-
-let client = null;
-let status = 'disconnected'; // disconnected | qr_ready | connected
-let consecutiveFailures = 0;
-
-/* =========================================================
- * HELPERS
- * ======================================================= */
 
 function removeStaleChromeLocks(dir) {
   if (!fs.existsSync(dir)) return;
@@ -51,11 +51,8 @@ function removeStaleChromeLocks(dir) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        removeStaleChromeLocks(full);
-      } else if (CHROME_LOCK_NAMES.has(entry.name)) {
-        fs.unlinkSync(full);
-      }
+      if (entry.isDirectory()) removeStaleChromeLocks(full);
+      else if (CHROME_LOCK_NAMES.has(entry.name)) fs.unlinkSync(full);
     }
   } catch (err) {
     console.warn('removeStaleChromeLocks:', err.message);
@@ -64,20 +61,15 @@ function removeStaleChromeLocks(dir) {
 
 function normalizeChatIdCandidate(value) {
   if (!value) return null;
-
   if (typeof value === 'object') {
     if (typeof value._serialized === 'string') return value._serialized;
-    if (typeof value.user === 'string' && typeof value.server === 'string') {
-      return `${value.user}@${value.server}`;
-    }
+    if (typeof value.user === 'string' && typeof value.server === 'string') return `${value.user}@${value.server}`;
     return null;
   }
-
   const raw = String(value).trim();
   if (!raw) return null;
   if (raw.includes('@')) return raw;
   if (/^\d+$/.test(raw)) return `${raw}@c.us`;
-
   return null;
 }
 
@@ -85,10 +77,8 @@ function digitsOnly(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
-/** Texto visível para análise */
 function incomingMessageText(msg) {
   if (!msg || msg.fromMe) return '';
-
   let t = '';
   if (typeof msg.body === 'string') t = msg.body.trim();
   else if (msg.body != null && msg.body !== '') t = String(msg.body).trim();
@@ -101,17 +91,36 @@ function incomingMessageText(msg) {
   return t;
 }
 
-/* =========================================================
- * WHATSAPP INIT
- * ======================================================= */
+/* ─── Persistência de sessão no banco ───────────────────────── */
 
-function initWhatsApp(io) {
-  if (client) return;
+async function persistWaStatus(tenantId, status, connectedPhone = null) {
+  try {
+    const { getDb } = require('../db');
+    const { whatsappSessions } = require('../db/schema');
+    const db = getDb();
+    const update = { status, updatedAt: new Date() };
+    if (connectedPhone !== null) update.connectedPhone = connectedPhone;
+    if (status === 'connected') update.lastSeenAt = new Date();
+    await db.update(whatsappSessions).set(update)
+      .where(eq(whatsappSessions.tenantId, tenantId));
+  } catch (e) {
+    // Silencioso — não bloquear o fluxo de conexão por falha de DB
+    console.warn('[wa] persistWaStatus error:', e.message);
+  }
+}
 
-  removeStaleChromeLocks(SESSION_USER_DATA_DIR);
+/* ─── Init WhatsApp ──────────────────────────────────────────── */
 
-  client = new Client({
-    authStrategy: new LocalAuth({ dataPath: WWEBJS_DATA_PATH }),
+function initWhatsApp(tenantId, io) {
+  const state = getTenantState(tenantId);
+  if (state.client) return; // já inicializado para este tenant
+
+  // clientId isola sessão de cada tenant: .wwebjs_auth/session-{tenantId}/
+  const sessionDir = path.join(WWEBJS_DATA_PATH, `session-${tenantId}`);
+  removeStaleChromeLocks(sessionDir);
+
+  const client = new Client({
+    authStrategy: new LocalAuth({ dataPath: WWEBJS_DATA_PATH, clientId: tenantId }),
     puppeteer: {
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: [
@@ -125,79 +134,260 @@ function initWhatsApp(io) {
     },
   });
 
+  state.client = client;
+  state.status = 'disconnected';
+
   client.on('qr', async (qr) => {
-    status = 'qr_ready';
+    state.status = 'qr_ready';
+    await persistWaStatus(tenantId, 'qr_ready');
     const qrDataUrl = await qrcode.toDataURL(qr);
-    io.emit('qr', { qr: qrDataUrl });
-    io.emit('session:status', { status });
+    io.to(tenantId).emit('qr', { qr: qrDataUrl });
+    io.to(tenantId).emit('session:status', { status: 'qr_ready' });
   });
 
-  client.on('ready', () => {
-    status = 'connected';
-    io.emit('session:ready');
-    io.emit('session:status', { status });
+  client.on('ready', async () => {
+    // Validar se o número conectado corresponde ao cadastrado no tenant
+    try {
+      const connectedPhone = normalizePhoneForWhatsApp(client.info?.wid?.user || '');
+      const { getDb } = require('../db');
+      const { tenants } = require('../db/schema');
+      const db = getDb();
+      const [tenant] = await db.select({ registeredPhone: tenants.registeredPhone })
+        .from(tenants).where(eq(tenants.id, tenantId));
+
+      if (tenant && tenant.registeredPhone) {
+        const registered = normalizePhoneForWhatsApp(tenant.registeredPhone);
+        // Comparação tolerante ao 9º dígito: mesma conta WhatsApp pode aparecer
+        // como 5531995637020 (com 9) ou 553195637020 (sem 9) — ambos válidos.
+        const matchesPhone = (a, b) => {
+          if (!a || !b) return false;
+          if (a === b) return true;
+          const variants = brSendVariants(a);
+          return variants.includes(b);
+        };
+        if (registered && connectedPhone && !matchesPhone(registered, connectedPhone)) {
+          console.warn(`[wa] número errado para tenant ${tenantId}: conectado=${connectedPhone} esperado=${registered}`);
+          await client.destroy().catch(() => {});
+          state.client = null;
+          state.status = 'disconnected';
+          await persistWaStatus(tenantId, 'disconnected', null);
+          const fmt = (p) => {
+            const d = String(p || '').replace(/\D/g, '');
+            if (d.length === 13 && d.startsWith('55')) return `+55 (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
+            if (d.length === 12 && d.startsWith('55')) return `+55 (${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`;
+            return p;
+          };
+          io.to(tenantId).emit('session:wrong_phone', {
+            message: `Esse número não é o que está vinculado à sua conta. O cadastro aqui é para o ${fmt(registered)}, mas o que escaneou foi o ${fmt(connectedPhone)}. Encerramos a conexão por segurança — use o WhatsApp do número certo e tente de novo.`,
+            connectedPhone,
+            registeredPhone: registered,
+          });
+          io.to(tenantId).emit('session:status', { status: 'disconnected' });
+          return;
+        }
+      }
+
+      state.status = 'connected';
+      await persistWaStatus(tenantId, 'connected', connectedPhone);
+      io.to(tenantId).emit('session:ready');
+      io.to(tenantId).emit('session:status', { status: 'connected' });
+      try { require('./metrics.service').recordClientEvent(tenantId, 'ready'); } catch (_) {}
+      try { require('./incidents.service').record(tenantId, io, 'wa_ready', 'info', { connectedPhone }); } catch (_) {}
+
+      // Backfill em background (não bloqueia o session:ready)
+      try {
+        const conversationService = require('./conversation.service');
+        conversationService.syncFromWwebjs(tenantId, io).catch((e) => {
+          console.warn('[chat] sync background error:', e.message);
+        });
+      } catch (_) {}
+    } catch (err) {
+      console.error('[wa] ready handler error:', err.message);
+      state.status = 'connected';
+      io.to(tenantId).emit('session:ready');
+      io.to(tenantId).emit('session:status', { status: 'connected' });
+    }
   });
 
-  client.on('disconnected', () => {
-    status = 'disconnected';
-    client = null;
-    io.emit('session:disconnected');
-    io.emit('session:status', { status });
+  client.on('auth_failure', async (message) => {
+    state.status = 'disconnected';
+    state.client = null;
+    await persistWaStatus(tenantId, 'disconnected', null);
+    io.to(tenantId).emit('session:auth_failure', { message });
+    try { require('./metrics.service').recordClientEvent(tenantId, 'auth_failure'); } catch (_) {}
+    try { require('./incidents.service').record(tenantId, io, 'wa_auth_failure', 'critical', { message }); } catch (_) {}
+    tenantClients.delete(tenantId);
+  });
+
+  client.on('disconnected', async (reason) => {
+    state.status = 'disconnected';
+    state.client = null;
+    await persistWaStatus(tenantId, 'disconnected', null);
+    io.to(tenantId).emit('session:disconnected');
+    io.to(tenantId).emit('session:status', { status: 'disconnected' });
+    try { require('./metrics.service').recordClientEvent(tenantId, 'disconnected'); } catch (_) {}
+    try { require('./incidents.service').record(tenantId, io, 'wa_disconnected', 'warning', { reason: String(reason) }); } catch (_) {}
+    tenantClients.delete(tenantId);
   });
 
   client.on('message', async (msg) => {
     if (msg.fromMe) return;
+
+    // ─── Persistir TODA mensagem inbound na timeline de conversas (DMs + grupos) ───
+    try {
+      const conversationService = require('./conversation.service');
+      const waChatId = msg?.from || msg?.id?.remote?._serialized || msg?.id?.remote;
+      if (waChatId) {
+        const isGroup = String(waChatId).endsWith('@g.us');
+        const body = (msg.body || msg.caption || '').toString();
+        const mediaInfo = msg.hasMedia
+          ? await conversationService.saveInboundMedia(tenantId, msg).catch(() => null)
+          : null;
+
+        // Nome do chat/grupo, foto e telefone real (para LID)
+        let contactName = null;
+        let avatarUrl = null;
+        let realPhone = null;
+        try {
+          if (isGroup) {
+            const groupChat = await msg.getChat().catch(() => null);
+            contactName = groupChat?.name || groupChat?.formattedTitle || null;
+            avatarUrl = await client.getProfilePicUrl(waChatId).catch(() => null);
+          } else {
+            const c = await msg.getContact();
+            contactName = c?.name || c?.pushname || null;
+            if (c?.number) realPhone = c.number;
+            avatarUrl = await c?.getProfilePicUrl?.().catch(() => null);
+          }
+        } catch (_) {}
+
+        // Em grupos, captura também o nome de quem enviou
+        let authorName = null;
+        if (isGroup && msg.author) {
+          try {
+            const author = await client.getContactById(msg.author).catch(() => null);
+            authorName = author?.pushname || author?.name || author?.number || null;
+          } catch (_) {}
+        }
+
+        await conversationService.recordIncomingMessage(tenantId, io, {
+          waMessageId: msg.id?._serialized || null,
+          waChatId,
+          body,
+          hasMedia: Boolean(msg.hasMedia),
+          mediaInfo,
+          timestampMs: (msg.timestamp || 0) * 1000,
+          contactName,
+          isGroup,
+          authorName,
+          realPhone,
+          avatarUrl,
+        }).catch((e) => { console.warn('[chat] recordIncoming error:', e.message); });
+      }
+    } catch (e) {
+      console.warn('[chat] inbound persist error:', e.message);
+    }
+
+    // ─── Detecção de opt-out (mantém comportamento existente) ───
     const text = (msg.body || '').trim().toLowerCase();
     if (!isOptOutText(text)) return;
 
-    // Remove qualquer sufixo @c.us / @s.whatsapp.net / @lid / etc.
     const phone = msg.from.replace(/@\S+$/, '');
-    const Contact = require('../models/contact.model');
-    // collectPhoneKeys gera variantes normalizadas. Se o contato foi importado
-    // com formato não coberto, findOneAndUpdate retorna null (ignorado silenciosamente).
-    const contact = await Contact.findOneAndUpdate(
-      { phone: { $in: collectPhoneKeys(phone) }, optedOut: { $ne: true } },
-      { optedOut: true, optOutAt: new Date() },
-      { new: true },
-    ).catch((e) => { console.error('[opt-out] db error:', e.message); return null; });
+    const phoneKeys = collectPhoneKeys(phone);
+    let optedOutContact = null;
+    try {
+      const { getDb } = require('../db');
+      const { contacts } = require('../db/schema');
+      const db = getDb();
+      const [updated] = await db.update(contacts)
+        .set({ optedOut: true, optedOutAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(contacts.tenantId, tenantId),
+          inArray(contacts.phone, phoneKeys),
+          eq(contacts.optedOut, false),
+        ))
+        .returning();
+      optedOutContact = updated || null;
+    } catch (e) {
+      console.error('[opt-out] db error:', e.message);
+    }
 
-    if (!contact) return;
+    if (!optedOutContact) return;
+    io.to(tenantId).emit('contact:opted-out', { phone: optedOutContact.phone, name: optedOutContact.name });
+    console.log(`[opt-out] tenant=${tenantId} ${optedOutContact.name} (${optedOutContact.phone}) saiu via mensagem`);
+  });
 
-    io.emit('contact:opted-out', { phone: contact.phone, name: contact.name });
-    console.log(`[opt-out] ${contact.name} (${contact.phone}) saiu via mensagem`);
+  // ─── message_create: dispara para mensagens enviadas pelo celular físico (espelhamento WA Web) ───
+  client.on('message_create', async (msg) => {
+    if (!msg.fromMe) return; // só mensagens que eu envio
+    try {
+      const conversationService = require('./conversation.service');
+      const waChatId = msg?.to || msg?.id?.remote?._serialized || msg?.id?.remote;
+      if (!waChatId) return;
+
+      const body = (msg.body || msg.caption || '').toString();
+      const mediaInfo = msg.hasMedia
+        ? await conversationService.saveInboundMedia(tenantId, msg).catch(() => null)
+        : null;
+
+      await conversationService.recordOutgoingMessage(tenantId, io, {
+        waMessageId: msg.id?._serialized || null,
+        waChatId,
+        body,
+        mediaInfo,
+        timestampMs: (msg.timestamp || 0) * 1000,
+      }).catch((e) => { console.warn('[chat] recordOutgoing error:', e.message); });
+    } catch (e) {
+      console.warn('[chat] message_create error:', e.message);
+    }
+  });
+
+  // ─── message_ack: atualiza status de entrega/leitura ───
+  client.on('message_ack', async (msg, ack) => {
+    try {
+      // ack: 0=pending, 1=sent, 2=delivered, 3=read, 4=played
+      const statusMap = { 0: 'queued', 1: 'sent', 2: 'delivered', 3: 'read', 4: 'read' };
+      const status = statusMap[ack];
+      if (!status || !msg?.id?._serialized) return;
+      const conversationService = require('./conversation.service');
+      await conversationService.updateMessageStatus(tenantId, io, msg.id._serialized, status)
+        .catch(() => {});
+    } catch (e) {
+      console.warn('[chat] message_ack error:', e.message);
+    }
   });
 
   client.initialize().catch((err) => {
-    console.error('WhatsApp init error:', err.message);
-    status = 'disconnected';
-    client = null;
-    io.emit('session:error', { message: err.message });
-    io.emit('session:status', { status });
+    console.error(`[wa] init error tenant=${tenantId}:`, err.message);
+    state.status = 'disconnected';
+    state.client = null;
+    io.to(tenantId).emit('session:error', { message: err.message });
+    io.to(tenantId).emit('session:status', { status: 'disconnected' });
+    tenantClients.delete(tenantId);
   });
 }
 
-function getStatus() {
-  return status;
+function getStatus(tenantId) {
+  if (!tenantId) {
+    // Fallback: retorna 'connected' se qualquer tenant estiver conectado (retrocompatibilidade)
+    for (const state of tenantClients.values()) {
+      if (state.status === 'connected') return 'connected';
+    }
+    return 'disconnected';
+  }
+  return getTenantState(tenantId).status;
 }
 
-/* =========================================================
- * CHAT / DESTINATION RESOLUTION
- * ======================================================= */
+/* ─── Chat / Destination resolution ─────────────────────────── */
 
-/**
- * Coleciona JIDs a tentar para envio/leitura. O WA recente muitas vece exige LID em vez de só @c.us.
- * Ordenação: LID / wid do QueryExist primeiro; @c.us / @s.whatsapp.net no fim.
- */
 function compareJidSendOrder(a, b) {
   const sa = String(a).toLowerCase();
   const sb = String(b).toLowerCase();
-  const score = (s) => (s.endsWith('@lid') ? 0
-    : s.endsWith('@c.us') || s.endsWith('@s.whatsapp.net') ? 2
-    : 1);
+  const score = (s) => (s.endsWith('@lid') ? 0 : s.endsWith('@c.us') || s.endsWith('@s.whatsapp.net') ? 2 : 1);
   return score(sa) - score(sb) || sa.localeCompare(sb);
 }
 
-async function expandJidCandidates(phoneOrDigits) {
+async function expandJidCandidates(client, phoneOrDigits) {
   const rawDigits = digitsOnly(phoneOrDigits);
   const byKey = new Map();
   const add = (v, p) => {
@@ -213,37 +403,22 @@ async function expandJidCandidates(phoneOrDigits) {
   )].filter((d) => d.length >= 8);
 
   const toLidQuery = new Set();
-  for (const d of keyDigits) {
-    toLidQuery.add(`${d}@c.us`);
-    toLidQuery.add(`${d}@s.whatsapp.net`);
-  }
-  toLidQuery.add(`${rawDigits}@c.us`);
-  toLidQuery.add(`${rawDigits}@s.whatsapp.net`);
+  for (const d of keyDigits) { toLidQuery.add(`${d}@c.us`); toLidQuery.add(`${d}@s.whatsapp.net`); }
+  toLidQuery.add(`${rawDigits}@c.us`); toLidQuery.add(`${rawDigits}@s.whatsapp.net`);
 
   for (const d of keyDigits) {
-    try {
-      const numId = await client.getNumberId(d);
-      const s = normalizeChatIdCandidate(numId);
-      if (s) add(s, 0);
-    } catch (_) { /* muitas falhas com números alternativos */ }
+    try { const numId = await client.getNumberId(d); const s = normalizeChatIdCandidate(numId); if (s) add(s, 0); } catch (_) {}
   }
 
   if (toLidQuery.size) {
     try {
       const pairs = await client.getContactLidAndPhone([...toLidQuery]);
-      for (const row of pairs || []) {
-        add(row && row.lid, 0);
-        add(row && row.pn, 1);
-      }
-    } catch (err) {
-      console.warn('getContactLidAndPhone:', err.message);
-    }
+      for (const row of pairs || []) { add(row && row.lid, 0); add(row && row.pn, 1); }
+    } catch (err) { console.warn('getContactLidAndPhone:', err.message); }
   }
 
   try {
     const contacts = await client.getContacts();
-    // Only use keys with DDD (>= 11 digits) to avoid false matches between contacts
-    // that share the same local number but have different area codes.
     const fullKeyDigits = keyDigits.filter((d) => d.length >= 11);
     for (const c of contacts) {
       if (c.isGroup || !c.number) continue;
@@ -252,113 +427,57 @@ async function expandJidCandidates(phoneOrDigits) {
       for (const d of fullKeyDigits) {
         const L = cn.length >= d.length ? cn : d;
         const s = cn.length < d.length ? cn : d;
-        if (L.endsWith(s) && c.id) {
-          add(c.id, 1);
-        }
+        if (L.endsWith(s) && c.id) add(c.id, 1);
       }
     }
   } catch (_) {}
 
-  for (const d of keyDigits) {
-    add(`${d}@c.us`, 3);
-    add(`${d}@s.whatsapp.net`, 4);
-  }
-  if (!keyDigits.length) {
-    add(`${rawDigits}@c.us`, 3);
-  }
+  for (const d of keyDigits) { add(`${d}@c.us`, 3); add(`${d}@s.whatsapp.net`, 4); }
+  if (!keyDigits.length) add(`${rawDigits}@c.us`, 3);
 
-  return [...byKey.values()]
-    .sort((a, b) => a.p - b.p || compareJidSendOrder(a.jid, b.jid))
-    .map((x) => x.jid);
+  return [...byKey.values()].sort((a, b) => a.p - b.p || compareJidSendOrder(a.jid, b.jid)).map((x) => x.jid);
 }
 
-/** Resolução alargada: LID/PN, QueryExist, contatos, depois @c.us. Usado em getChatByPhone, fila, etc. */
-async function resolveChatIds(phoneDigits) {
-  return expandJidCandidates(phoneDigits);
+async function resolveChatIds(client, phoneDigits) {
+  return expandJidCandidates(client, phoneDigits);
 }
 
-/**
- * JIDs a tentar em `sendMessage`, com prioridade: chat aberto (canônico) → expandJidCandidates.
- */
-async function getJidsForSend(phone) {
-  const ordered = [];
-  const seen = new Set();
-  const push = (n) => {
-    const j = normalizeChatIdCandidate(n);
-    if (!j) return;
-    const k = j.toLowerCase();
-    if (seen.has(k)) return;
-    seen.add(k);
-    ordered.push(j);
-  };
-  try {
-    const ch = await getChatByPhone(phone);
-    if (ch && ch.id && ch.id._serialized) {
-      push(ch.id._serialized);
-    }
-  } catch (_) {}
-  for (const j of await expandJidCandidates(phone)) {
-    push(j);
-  }
-  if (ordered.length) return ordered;
-  const d = digitsOnly(phone);
-  if (d.length >= 8) return [`${d}@c.us`];
-  return [normalizeChatIdCandidate(phone)].filter(Boolean);
-}
-
-async function getChatByPhone(phone) {
+async function getChatByPhone(tenantId, phone) {
+  const { client, status } = getTenantState(tenantId);
   if (!client || status !== 'connected') return null;
 
   const digits = digitsOnly(phone);
-  const keySet = new Set(
-    [...collectPhoneKeys(phone), digits].filter((k) => k && String(k).replace(/\D/g, '').length >= 8),
-  );
+  const keySet = new Set([...collectPhoneKeys(phone), digits].filter((k) => k && String(k).replace(/\D/g, '').length >= 8));
   const numericKeys = [...new Set([...keySet].map((k) => digitsOnly(k)).filter((k) => k.length >= 8))];
 
   for (const k of numericKeys) {
     for (const domain of ['c.us', 's.whatsapp.net']) {
-      try {
-        const jid = `${k}@${domain}`;
-        const ch = await client.getChatById(jid);
-        if (ch && !ch.isGroup) return ch;
-      } catch (err) {
+      try { const ch = await client.getChatById(`${k}@${domain}`); if (ch && !ch.isGroup) return ch; } catch (err) {
         console.warn('getChatByPhone:directJid:', err.message);
       }
     }
   }
 
-  const resolvedJids = await resolveChatIds(digits);
+  const resolvedJids = await resolveChatIds(client, digits);
   const resolvedLower = new Set(resolvedJids.map((j) => String(j).toLowerCase()));
 
   for (const jid of resolvedJids) {
-    try {
-      const ch = await client.getChatById(jid);
-      if (ch && !ch.isGroup) return ch;
-    } catch (err) {
+    try { const ch = await client.getChatById(jid); if (ch && !ch.isGroup) return ch; } catch (err) {
       console.warn('getChatByPhone:resolveJid:', jid, err.message);
     }
   }
 
   let allChats = [];
-  try {
-    allChats = await client.getChats();
-  } catch (err) {
-    console.warn('getChatByPhone:getChats:', err.message);
-    return null;
-  }
+  try { allChats = await client.getChats(); } catch (err) { console.warn('getChatByPhone:getChats:', err.message); return null; }
 
-  // Only use keys with DDD (>= 11 digits) to avoid false positives between contacts
-  // sharing the same local number but with different area codes.
   const numericKeysWithDDD = numericKeys.filter((k) => k.length >= 11);
 
   for (const chat of allChats) {
     if (chat.isGroup) continue;
     const sid = String(chat?.id?._serialized || '').toLowerCase();
     if (resolvedLower.has(sid)) return chat;
-
     const user = digitsOnly(chat?.id?.user || '');
     if (!user) continue;
-
     for (const k of numericKeysWithDDD) {
       const longer = user.length >= k.length ? user : k;
       const shorter = user.length < k.length ? user : k;
@@ -366,7 +485,6 @@ async function getChatByPhone(phone) {
     }
   }
 
-  // Last resort for LID accounts: getContacts() has the real phone number mapped to WID
   try {
     const allContacts = await client.getContacts();
     for (const contact of allContacts) {
@@ -379,10 +497,7 @@ async function getChatByPhone(phone) {
         return longer.endsWith(shorter);
       });
       if (isMatch) {
-        try {
-          const ch = await client.getChatById(contact.id._serialized);
-          if (ch && !ch.isGroup) return ch;
-        } catch (_) {}
+        try { const ch = await client.getChatById(contact.id._serialized); if (ch && !ch.isGroup) return ch; } catch (_) {}
       }
     }
   } catch (_) {}
@@ -390,31 +505,104 @@ async function getChatByPhone(phone) {
   return null;
 }
 
-/* =========================================================
- * SEND MESSAGE
- * ======================================================= */
+/* ─── Send ───────────────────────────────────────────────────── */
 
-async function sendMessage(phone, message, imagePath) {
-  if (!client || status !== 'connected') throw new Error('WhatsApp not connected');
+function brSendVariants(digits) {
+  const out = new Set();
+  if (!digits) return [];
+  out.add(digits);
+  if (/^55\d{2}9\d{8}$/.test(digits)) out.add(digits.slice(0, 4) + digits.slice(5));
+  else if (/^55\d{10}$/.test(digits)) out.add(`${digits.slice(0, 4)}9${digits.slice(4)}`);
+  return [...out];
+}
+
+async function getSendCandidates(client, phone) {
+  const canonical = normalizePhoneForWhatsApp(phone) || digitsOnly(phone);
+  const ordered = [];
+  const seen = new Set();
+  const push = (jid) => {
+    const n = normalizeChatIdCandidate(jid);
+    if (!n) return;
+    const k = n.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    ordered.push(n);
+  };
+
+  const variants = brSendVariants(canonical).filter((d) => d.length >= 12);
+
+  for (const d of variants) {
+    try { const numId = await client.getNumberId(d); const s = normalizeChatIdCandidate(numId); if (s) push(s); } catch (_) {}
+  }
+  for (const d of variants) push(`${d}@c.us`);
+  if (!ordered.length && canonical.length >= 8) push(`${canonical}@c.us`);
+
+  return ordered;
+}
+
+async function sendMessage(tenantId, phone, message, imagePath, opts = {}) {
+  const { client, status } = getTenantState(tenantId);
+  if (!client || status !== 'connected') throw new Error('WhatsApp não conectado');
 
   const { MessageMedia } = require('whatsapp-web.js');
 
+  // Monta opções de envio. Para áudios, manda como voice note (PTT).
+  function buildSendOptions(forMedia) {
+    const o = {};
+    if (forMedia && message) o.caption = message;
+    if (opts.mediaType === 'audio') o.sendAudioAsVoice = true;
+    if (opts.mediaType === 'document' && opts.originalName) {
+      o.sendMediaAsDocument = true;
+      o.filename = opts.originalName;
+    }
+    return o;
+  }
+
+  // Tentativa 1: enviar via objeto Chat — caminho mais robusto, funciona em LID.
+  if (opts.directChatId) {
+    try {
+      const chat = await client.getChatById(opts.directChatId);
+      if (chat) {
+        let sent;
+        if (imagePath) {
+          const media = MessageMedia.fromFilePath(imagePath);
+          sent = await chat.sendMessage(media, buildSendOptions(true));
+        } else {
+          sent = await chat.sendMessage(message);
+        }
+        return {
+          phone: digitsOnly(phone),
+          chatId: opts.directChatId,
+          messageId: sent?.id?._serialized || null,
+          timestamp: sent?.timestamp ? sent.timestamp * 1000 : Date.now(),
+          body: message,
+        };
+      }
+    } catch (err) {
+      console.warn(`[wa] chat.sendMessage falhou para ${opts.directChatId} — caindo para fallback:`, err.message);
+    }
+  }
+
+  // Tentativa 2: resolução tradicional por número (fallback para casos sem waChatId)
   const sendTo = async (chatId) => {
     if (imagePath) {
       const media = MessageMedia.fromFilePath(imagePath);
-      return await client.sendMessage(chatId, media, { caption: message });
+      return await client.sendMessage(chatId, media, buildSendOptions(true));
     }
-
     return await client.sendMessage(chatId, message);
   };
 
-  const chatIds = await getJidsForSend(phone);
-  let lastErr = null;
+  let chatIds = [];
+  if (opts.directChatId) chatIds.push(opts.directChatId);
+  const fallback = await getSendCandidates(client, phone);
+  for (const c of fallback) {
+    if (!chatIds.includes(c)) chatIds.push(c);
+  }
 
+  let lastErr = null;
   for (const chatId of chatIds) {
     try {
       const sent = await sendTo(chatId);
-
       return {
         phone: digitsOnly(phone),
         chatId,
@@ -424,11 +612,7 @@ async function sendMessage(phone, message, imagePath) {
       };
     } catch (err) {
       lastErr = err;
-      const msg = err && (err.message || String(err));
-
-      if (!/No LID|LID for user|wid|not a whatsapp|invalid/i.test(String(msg))) {
-        throw err;
-      }
+      if (!/No LID|LID for user|wid|not a whatsapp|invalid/i.test(String(err?.message || ''))) throw err;
     }
   }
 
@@ -436,9 +620,7 @@ async function sendMessage(phone, message, imagePath) {
   throw new Error(`${details.trim()} — destinos tentados: ${chatIds.join(', ')}`);
 }
 
-/* =========================================================
- * READ INCOMING MESSAGES SINCE DATE
- * ======================================================= */
+/* ─── Read incoming ──────────────────────────────────────────── */
 
 function addIncomingToMapSince(chat, messages, sinceMs, outById) {
   for (const msg of messages || []) {
@@ -448,18 +630,12 @@ function addIncomingToMapSince(chat, messages, sinceMs, outById) {
     const body = incomingMessageText(msg);
     if (!body) continue;
     const id = msg.id?._serialized || `${chat.id._serialized}:${msg.timestamp}:${body}`;
-    if (!outById.has(id)) {
-      outById.set(id, {
-        id,
-        chatId: chat.id._serialized,
-        timestamp: tsMs,
-        body,
-      });
-    }
+    if (!outById.has(id)) outById.set(id, { id, chatId: chat.id._serialized, timestamp: tsMs, body });
   }
 }
 
-async function listIncomingMessagesSince(phone, sinceDate) {
+async function listIncomingMessagesSince(tenantId, phone, sinceDate) {
+  const { client, status } = getTenantState(tenantId);
   if (!client || status !== 'connected') return [];
 
   const sinceMs = sinceDate instanceof Date ? sinceDate.getTime() : new Date(sinceDate).getTime();
@@ -469,52 +645,37 @@ async function listIncomingMessagesSince(phone, sinceDate) {
   const digits = digitsOnly(phone);
 
   try {
-    const direct = await getChatByPhone(phone);
+    const direct = await getChatByPhone(tenantId, phone);
     if (direct) {
       const messages = await direct.fetchMessages({ limit: READ_MSG_LIMIT }).catch(() => []);
       addIncomingToMapSince(direct, messages, sinceMs, outById);
-      if (outById.size > 0) {
-        return Array.from(outById.values()).sort((a, b) => a.timestamp - b.timestamp);
-      }
+      if (outById.size > 0) return Array.from(outById.values()).sort((a, b) => a.timestamp - b.timestamp);
     }
-  } catch (e) {
-    console.warn('listIncomingMessagesSince: directChat:', e.message);
-  }
+  } catch (e) { console.warn('listIncomingMessagesSince: directChat:', e.message); }
 
   let resolvedJids = [];
-  try {
-    resolvedJids = await resolveChatIds(digits);
-  } catch (err) {
-    console.warn('listIncomingMessagesSince: resolveChatIds:', err.message);
-  }
+  try { resolvedJids = await resolveChatIds(client, digits); } catch (err) { console.warn('listIncomingMessagesSince: resolveChatIds:', err.message); }
 
   const resolvedLower = new Set(resolvedJids.map((j) => String(j).toLowerCase()));
 
   let allChats = [];
-  try {
-    allChats = await client.getChats();
-  } catch (err) {
+  try { allChats = await client.getChats(); } catch (err) {
     console.warn('listIncomingMessagesSince: getChats failed:', err.message);
     return Array.from(outById.values()).sort((a, b) => a.timestamp - b.timestamp);
   }
 
   const seenSerialized = new Set();
   const chatsToScan = [];
-
   const pushUnique = (chat) => {
     const sid = chat && chat.id && chat.id._serialized;
     if (!sid || seenSerialized.has(sid)) return;
-    seenSerialized.add(sid);
-    chatsToScan.push(chat);
+    seenSerialized.add(sid); chatsToScan.push(chat);
   };
 
   for (const chat of allChats) {
     if (chat.isGroup) continue;
     const sid = String(chat.id._serialized || '').toLowerCase();
-    if (resolvedLower.has(sid)) {
-      pushUnique(chat);
-      continue;
-    }
+    if (resolvedLower.has(sid)) { pushUnique(chat); continue; }
     const user = digitsOnly(chat.id.user || '');
     if (!user) continue;
     const longer = user.length >= digits.length ? user : digits;
@@ -525,38 +686,21 @@ async function listIncomingMessagesSince(phone, sinceDate) {
   for (const jid of resolvedJids) {
     const j = String(jid).toLowerCase();
     if ([...seenSerialized].some((s) => s.toLowerCase() === j)) continue;
-    try {
-      const ch = await client.getChatById(jid);
-      if (ch && !ch.isGroup) pushUnique(ch);
-    } catch (err) {
+    try { const ch = await client.getChatById(jid); if (ch && !ch.isGroup) pushUnique(ch); } catch (err) {
       console.warn('listIncomingMessagesSince: getChatById', jid, err.message);
     }
   }
 
-  // Fallback for LID accounts: match via getContacts() which has real phone numbers
   if (chatsToScan.length === 0) {
-    // Only use keys with DDD (>= 11 digits) to avoid false positives with same local number / different DDD
-    const fullKeys = [...new Set(
-      [...collectPhoneKeys(phone), digits].map((k) => digitsOnly(k)).filter((k) => k.length >= 11),
-    )];
+    const fullKeys = [...new Set([...collectPhoneKeys(phone), digits].map((k) => digitsOnly(k)).filter((k) => k.length >= 11))];
     try {
       const allContacts = await client.getContacts();
       for (const contact of allContacts) {
         if (contact.isGroup || !contact.number) continue;
         const cn = digitsOnly(contact.number);
         if (cn.length < 10) continue;
-        const isMatch = fullKeys.some((k) => {
-          const longer = cn.length >= k.length ? cn : k;
-          const shorter = cn.length < k.length ? cn : k;
-          return longer.endsWith(shorter);
-        });
-        if (isMatch) {
-          try {
-            const ch = await client.getChatById(contact.id._serialized);
-            if (ch && !ch.isGroup) pushUnique(ch);
-          } catch (_) {}
-          break;
-        }
+        const isMatch = fullKeys.some((k) => { const L = cn.length >= k.length ? cn : k; const s = cn.length < k.length ? cn : k; return L.endsWith(s); });
+        if (isMatch) { try { const ch = await client.getChatById(contact.id._serialized); if (ch && !ch.isGroup) pushUnique(ch); } catch (_) {} break; }
       }
     } catch (_) {}
   }
@@ -569,9 +713,7 @@ async function listIncomingMessagesSince(phone, sinceDate) {
   return Array.from(outById.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
 
-/* =========================================================
- * ANALYZE REPLIES TO A SPECIFIC OUTBOUND MESSAGE
- * ======================================================= */
+/* ─── Analyze replies ────────────────────────────────────────── */
 
 function buildReplyRow(msg, chat, indexFallback) {
   return {
@@ -582,36 +724,25 @@ function buildReplyRow(msg, chat, indexFallback) {
   };
 }
 
-/**
- * Mensagens do contato após o nosso envio (âncora = id retornado no sendMessage ou timestamp do WA).
- * Não lança: retorna [] se não achar chat ou histórico insuficiente.
- */
-async function listRepliesToOutbound(phone, outboundRef, options = {}) {
+async function listRepliesToOutbound(tenantId, phone, outboundRef, options = {}) {
+  const { client, status } = getTenantState(tenantId);
   if (!client || status !== 'connected') return [];
 
   const maxReplies = Math.min(50, Math.max(1, Number(options.maxReplies) || 8));
   const fetchLimit = Math.min(50000, Math.max(500, Number(options.fetchLimit) || READ_MSG_LIMIT));
 
-  if (!outboundRef || (outboundRef.messageId == null && outboundRef.timestamp == null)) {
-    return [];
-  }
+  if (!outboundRef || (outboundRef.messageId == null && outboundRef.timestamp == null)) return [];
 
   let chat = null;
 
-  // Fastest path: look up chat via the stored outbound message (works for LID accounts)
   if (!chat && outboundRef.messageId) {
-    try {
-      const sentMsg = await client.getMessageById(outboundRef.messageId);
-      if (sentMsg) chat = await sentMsg.getChat();
-    } catch (_) { /* fall through */ }
+    try { const sentMsg = await client.getMessageById(outboundRef.messageId); if (sentMsg) chat = await sentMsg.getChat(); } catch (_) {}
   }
 
   if (!chat && options.knownChatId) {
-    try {
-      chat = await client.getChatById(options.knownChatId);
-    } catch (_) { /* fall through */ }
+    try { chat = await client.getChatById(options.knownChatId); } catch (_) {}
   }
-  if (!chat) chat = await getChatByPhone(phone);
+  if (!chat) chat = await getChatByPhone(tenantId, phone);
   if (!chat) return [];
 
   const raw = await chat.fetchMessages({ limit: fetchLimit }).catch(() => []);
@@ -621,37 +752,25 @@ async function listRepliesToOutbound(phone, outboundRef, options = {}) {
   const mid = outboundRef.messageId != null ? String(outboundRef.messageId) : null;
 
   if (mid) {
-    anchorIndex = ordered.findIndex(
-      (m) => m.fromMe && m?.id?._serialized
-        && (m.id._serialized === mid || m.id._serialized.endsWith(mid.split(':').pop() || mid)),
-    );
+    anchorIndex = ordered.findIndex((m) => m.fromMe && m?.id?._serialized && (m.id._serialized === mid || m.id._serialized.endsWith(mid.split(':').pop() || mid)));
   }
 
   if (anchorIndex === -1 && outboundRef.timestamp != null) {
-    const tMs = Number(outboundRef.timestamp);
-    const tSec = Math.floor(tMs / 1000);
-    let bestI = -1;
-    let bestD = 999999;
+    const tSec = Math.floor(Number(outboundRef.timestamp) / 1000);
+    let bestI = -1; let bestD = 999999;
     for (let i = 0; i < ordered.length; i++) {
-      const m = ordered[i];
-      if (!m.fromMe) continue;
+      const m = ordered[i]; if (!m.fromMe) continue;
       const d = Math.abs((m.timestamp || 0) - tSec);
-      if (d < bestD) {
-        bestD = d;
-        bestI = i;
-      }
+      if (d < bestD) { bestD = d; bestI = i; }
     }
     if (bestI >= 0 && bestD <= 120) anchorIndex = bestI;
   }
 
   const pushIncoming = (replies, startIdx) => {
     for (let i = startIdx; i < ordered.length; i++) {
-      const msg = ordered[i];
-      if (msg.fromMe) continue;
-      const body = incomingMessageText(msg);
-      if (!body) continue;
-      replies.push(buildReplyRow(msg, chat, i));
-      if (replies.length >= maxReplies) break;
+      const msg = ordered[i]; if (msg.fromMe) continue;
+      const body = incomingMessageText(msg); if (!body) continue;
+      replies.push(buildReplyRow(msg, chat, i)); if (replies.length >= maxReplies) break;
     }
   };
 
@@ -661,14 +780,11 @@ async function listRepliesToOutbound(phone, outboundRef, options = {}) {
     if (replies.length) return replies;
   }
 
-  // Fallback: tudo do contato depois de “por volta” do envio (registros antigos sem messageId)
   const sinceMs = (Number(outboundRef.timestamp) || 0) - 15_000;
   for (const msg of ordered) {
     if (msg.fromMe) continue;
-    const tsMs = (msg.timestamp || 0) * 1000;
-    if (tsMs < sinceMs) continue;
-    const body = incomingMessageText(msg);
-    if (!body) continue;
+    const tsMs = (msg.timestamp || 0) * 1000; if (tsMs < sinceMs) continue;
+    const body = incomingMessageText(msg); if (!body) continue;
     replies.push(buildReplyRow(msg, chat, 'fb'));
     if (replies.length >= maxReplies) break;
   }
@@ -677,272 +793,109 @@ async function listRepliesToOutbound(phone, outboundRef, options = {}) {
 
 function pickWindowVerdict(analyzedReplies) {
   const rev = [...analyzedReplies].reverse();
-  const lastMeaningful = rev.find(
-    (r) => !r.greetingOnly && r.classification !== 'neutral',
-  );
-  if (!lastMeaningful) {
-    return { status: 'neutral', classification: 'neutral' };
-  }
-  if (lastMeaningful.classification === 'negative') {
-    return { status: 'negative', classification: 'negative' };
-  }
-  if (lastMeaningful.classification === 'positive') {
-    return { status: 'positive', classification: 'positive' };
-  }
-  return { status: 'neutral', classification: 'neutral' };
+  const last = rev.find((r) => !r.greetingOnly && r.classification !== 'neutral');
+  if (!last) return { status: 'neutral', classification: 'neutral' };
+  return { status: last.classification, classification: last.classification };
 }
 
-/**
- * @param {string} phone
- * @param {{ messageId?: string|null, timestamp?: number }} outboundRef — retorno de `sendMessage` (messageId + timestamp ms)
- * @param {{ maxReplies?: number, fetchLimit?: number }} [options]
- */
-async function analyzeReplyWindow(phone, outboundRef, options = {}) {
+async function analyzeReplyWindow(tenantId, phone, outboundRef, options = {}) {
   const maxReplies = options.maxReplies != null ? options.maxReplies : 8;
   const fetchLimit = options.fetchLimit != null ? options.fetchLimit : READ_MSG_LIMIT;
 
-  let replies = await listRepliesToOutbound(phone, outboundRef, { maxReplies, fetchLimit, knownChatId: options.knownChatId || null });
+  let replies = await listRepliesToOutbound(tenantId, phone, outboundRef, { maxReplies, fetchLimit, knownChatId: options.knownChatId || null });
 
   if (!replies.length && outboundRef?.timestamp) {
     const t = new Date(Math.max(0, Number(outboundRef.timestamp) - 15_000));
-    const legacy = await listIncomingMessagesSince(phone, t).catch(() => []);
+    const legacy = await listIncomingMessagesSince(tenantId, phone, t).catch(() => []);
     replies = legacy.slice(0, maxReplies);
   }
 
   if (!replies.length) {
-    return {
-      status: 'no_response',
-      classification: 'no_response',
-      replyCount: 0,
-      analyzedReplies: [],
-      positiveReply: null,
-    };
+    return { status: 'no_response', classification: 'no_response', replyCount: 0, analyzedReplies: [], positiveReply: null };
   }
 
-  const analyzedReplies = replies.map((reply) => ({
-    ...reply,
-    greetingOnly: isGreetingReply(reply.body),
-    classification: classifyReply(reply.body),
-  }));
-
+  const analyzedReplies = replies.map((reply) => ({ ...reply, greetingOnly: isGreetingReply(reply.body), classification: classifyReply(reply.body) }));
   const { status, classification } = pickWindowVerdict(analyzedReplies);
+  const positiveReply = [...analyzedReplies].reverse().find((r) => r.classification === 'positive' && !r.greetingOnly) || analyzedReplies.find((r) => r.classification === 'positive') || null;
 
-  const positiveReply = [...analyzedReplies].reverse().find(
-    (r) => r.classification === 'positive' && !r.greetingOnly,
-  ) || analyzedReplies.find((r) => r.classification === 'positive') || null;
-
-  return {
-    status,
-    classification,
-    replyCount: analyzedReplies.length,
-    analyzedReplies,
-    positiveReply,
-  };
+  return { status, classification, replyCount: analyzedReplies.length, analyzedReplies, positiveReply };
 }
 
-/* =========================================================
- * TIMESTAMP-BASED CHAT INDEX (for LID accounts without chatId stored)
- * ======================================================= */
+/* ─── Timestamp-based chat index ─────────────────────────────── */
 
-/**
- * Scans ALL non-group chats once and maps sentAt timestamps → Chat objects.
- * This avoids phone-number-based lookup which fails for LID accounts.
- *
- * @param {number[]} sentTimestampsMsArr  — array of sentAt epoch-ms values
- * @param {number}   toleranceMs          — max diff to count as a match (default 90s)
- * @returns {Promise<Map<number, object>>} sentMs → Chat
- */
-async function buildTimestampToChatIndex(sentTimestampsMsArr, toleranceMs = 90_000) {
-  if (WWEBJS_DEBUG) {
-    console.log(`[chatIndex] called — client=${!!client} status=${status} timestamps=${sentTimestampsMsArr.length}`);
-  }
+async function buildTimestampToChatIndex(tenantId, sentTimestampsMsArr, toleranceMs = 90_000) {
+  const { client, status } = getTenantState(tenantId);
+  if (WWEBJS_DEBUG) console.log(`[chatIndex] client=${!!client} status=${status} timestamps=${sentTimestampsMsArr?.length}`);
   const result = new Map();
-  if (!client || status !== 'connected' || !sentTimestampsMsArr.length) {
-    if (WWEBJS_DEBUG) console.log('[chatIndex] early return — not ready or no timestamps');
-    return result;
-  }
+  if (!client || status !== 'connected' || !sentTimestampsMsArr?.length) return result;
 
   const sorted = [...sentTimestampsMsArr].sort((a, b) => a - b);
   const minSec = Math.floor(sorted[0] / 1000) - Math.ceil(toleranceMs / 1000);
   const maxSec = Math.ceil(sorted[sorted.length - 1] / 1000) + Math.ceil(toleranceMs / 1000);
-  /** Só abre chats cuja “última atividade” possa vincular a este job (não percorre threads antigos parados) */
   const actMinSec = minSec - CHAT_INDEX_PAD_BEFORE_SEC;
   const actMaxSec = maxSec + CHAT_INDEX_PAD_AFTER_SEC;
   const expectKeys = new Set(sentTimestampsMsArr).size;
 
   let allChats = [];
-  try {
-    allChats = await client.getChats();
-  } catch (err) {
+  try { allChats = await client.getChats(); } catch (err) {
     if (WWEBJS_DEBUG) console.warn('buildTimestampToChatIndex:getChats:', stringFromWwebjsErr(err));
     return result;
   }
 
-  const raw = allChats.filter((c) => !c.isGroup);
-  const skippedByTime = raw.length - raw.filter((c) => {
-    const t = c.timestamp;
-    if (t == null || t === 0) return true;
-    return t >= actMinSec && t <= actMaxSec;
-  }).length;
-  const nonGroupChats = raw
-    .filter((c) => {
-      const t = c.timestamp;
-      if (t == null || t === 0) return true;
-      return t >= actMinSec && t <= actMaxSec;
-    })
+  const nonGroupChats = allChats.filter((c) => !c.isGroup && (c.timestamp == null || c.timestamp === 0 || (c.timestamp >= actMinSec && c.timestamp <= actMaxSec)))
     .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-  if (WWEBJS_DEBUG) {
-    console.log(
-      `[chatIndex] outbound window: ${new Date(minSec * 1000).toISOString()} – ${new Date(maxSec * 1000).toISOString()}; ` +
-      `fila: ${actMinSec} – ${actMaxSec} (segundos)`,
-    );
-    console.log(
-      `[chatIndex] candidatos ${nonGroupChats.length} (não-grupo) · ignorados por inatividade fora da janela: ${skippedByTime} · ` +
-        `originais: ${raw.length}`,
-    );
-    if (CHAT_INDEX_SYNC_RETRY) {
-      console.log('[chatIndex] WWEBJS_CHAT_INDEX_SYNC: syncHistory() antes de re-tentar fetch (lento)');
-    }
-  }
-
-  let fetchErrorSamples = 0;
-  const loadMessagesForIndex = async (chat, limit) => {
-    if (CHAT_INDEX_SKIP_FETCH) {
-      if (chat.lastMessage) return [chat.lastMessage];
-      return [];
-    }
-    let msgs = await chat.fetchMessages({ limit }).catch((e) => {
-      if (WWEBJS_DEBUG) fetchErrorSamples += 1;
-      if (WWEBJS_DEBUG) {
-        console.warn('[chatIndex] fetchMessages:', stringFromWwebjsErr(e).slice(0, 200));
-      }
-      return [];
-    });
-    if (msgs.length === 0 && CHAT_INDEX_SYNC_RETRY) {
-      await chat.syncHistory().catch(() => {});
-      msgs = await chat.fetchMessages({ limit }).catch((e) => {
-        if (WWEBJS_DEBUG) fetchErrorSamples += 1;
-        return [];
-      });
-    }
-    if (msgs.length === 0 && chat.lastMessage) {
-      msgs = [chat.lastMessage];
-    }
+  const loadMessages = async (chat) => {
+    if (CHAT_INDEX_SKIP_FETCH) return chat.lastMessage ? [chat.lastMessage] : [];
+    let msgs = await chat.fetchMessages({ limit: 200 }).catch(() => []);
+    if (!msgs.length && CHAT_INDEX_SYNC_RETRY) { await chat.syncHistory().catch(() => {}); msgs = await chat.fetchMessages({ limit: 200 }).catch(() => []); }
+    if (!msgs.length && chat.lastMessage) msgs = [chat.lastMessage];
     return msgs;
   };
 
-  if (WWEBJS_DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[chatIndex] fonte: ${CHAT_INDEX_SKIP_FETCH ? 'só lastMessage (sem fetchMessages, rápido)' : 'fetchMessages'}`,
-    );
-    for (let si = 0; si < Math.min(3, nonGroupChats.length); si++) {
-      const sc = nonGroupChats[si];
-      const sm = await loadMessagesForIndex(sc, 10);
-      const lm = sc.lastMessage
-        ? { t: sc.lastMessage.timestamp, fromMe: sc.lastMessage.fromMe }
-        : null;
-      // eslint-disable-next-line no-console
-      console.log(
-        `[chatIndex] sample[${si}] id=${sc.id._serialized} msgs=${sm.length} ` +
-        `lastMsgMeta=${JSON.stringify(lm)}`,
-      );
-    }
-  }
-
   const bestDiff = new Map();
-  let totalMsgsFound = 0;
-  let chatsWithMsgs = 0;
-  let indexRowsFromLastMessageOnly = 0;
 
   for (const chat of nonGroupChats) {
     let msgs = [];
-    try {
-      const rawMsgs = await loadMessagesForIndex(chat, 200);
-      if (rawMsgs.length === 1 && chat.lastMessage && rawMsgs[0] === chat.lastMessage) {
-        indexRowsFromLastMessageOnly += 1;
-      }
-      msgs = rawMsgs;
-    } catch (_) {
-      /* pupPage: silencioso; use WWEBJS_DEBUG se precisar */
-    }
-    if (msgs.length) { chatsWithMsgs += 1; totalMsgsFound += msgs.length; }
-
-    if (WWEBJS_DEBUG) {
-      const fromMeInWindow = msgs.filter((m) => m.fromMe && (m.timestamp || 0) >= minSec && (m.timestamp || 0) <= maxSec);
-      if (fromMeInWindow.length > 0) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[chatIndex] match chat ${chat.id._serialized} fromMe in win: ${
-            fromMeInWindow.map((m) => new Date(m.timestamp * 1000).toISOString()).join(', ')}`,
-        );
-      }
-    }
+    try { msgs = await loadMessages(chat); } catch (_) {}
 
     for (const msg of msgs) {
       if (!msg.fromMe) continue;
       const tsSec = msg.timestamp || 0;
       if (tsSec < minSec || tsSec > maxSec) continue;
       const tsMs = tsSec * 1000;
-
       for (const sentMs of sentTimestampsMsArr) {
         const diff = Math.abs(tsMs - sentMs);
         if (diff <= toleranceMs) {
           const prev = bestDiff.get(sentMs);
-          if (prev === undefined || diff < prev) {
-            bestDiff.set(sentMs, diff);
-            result.set(sentMs, chat);
-          }
+          if (prev === undefined || diff < prev) { bestDiff.set(sentMs, diff); result.set(sentMs, chat); }
         }
       }
     }
-    if (CHAT_INDEX_EARLY_STOP && result.size >= expectKeys) {
-      if (WWEBJS_DEBUG) console.log('[chatIndex] early stop — todos os envios têm chat com match');
-      break;
-    }
+    if (CHAT_INDEX_EARLY_STOP && result.size >= expectKeys) break;
   }
 
-  if (WWEBJS_DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[chatIndex] chats com msg: ${chatsWithMsgs}/${nonGroupChats.length}, total msgs: ${totalMsgsFound}, ` +
-        `só lastMessage: ${indexRowsFromLastMessageOnly}, matched: ${result.size}/${sentTimestampsMsArr.length} ` +
-        (fetchErrorSamples > 0 ? `· evaluate falhou ~${fetchErrorSamples} (contagem aprox. em modo debug) ` : ''),
-    );
-  }
   return result;
 }
 
-/**
- * Fetch replies from a pre-resolved Chat object (skips phone-number lookup entirely).
- * Used when buildTimestampToChatIndex already resolved the chat.
- */
 async function fetchRepliesFromChat(chat, outboundRef, maxReplies = 8) {
   const fetchLimit = Math.min(200, Math.max(30, READ_MSG_LIMIT));
   let raw = await chat.fetchMessages({ limit: fetchLimit }).catch(() => []);
-  if (!raw.length && chat.lastMessage) {
-    raw = [chat.lastMessage];
-  }
+  if (!raw.length && chat.lastMessage) raw = [chat.lastMessage];
   const ordered = [...raw].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
   let anchorIndex = -1;
   const mid = outboundRef.messageId != null ? String(outboundRef.messageId) : null;
 
   if (mid) {
-    anchorIndex = ordered.findIndex(
-      (m) => m.fromMe && m?.id?._serialized
-        && (m.id._serialized === mid || m.id._serialized.endsWith(mid.split(':').pop() || mid)),
-    );
+    anchorIndex = ordered.findIndex((m) => m.fromMe && m?.id?._serialized && (m.id._serialized === mid || m.id._serialized.endsWith(mid.split(':').pop() || mid)));
   }
 
   if (anchorIndex === -1 && outboundRef.timestamp != null) {
     const tSec = Math.floor(Number(outboundRef.timestamp) / 1000);
-    let bestI = -1;
-    let bestD = 999999;
+    let bestI = -1; let bestD = 999999;
     for (let i = 0; i < ordered.length; i++) {
-      const m = ordered[i];
-      if (!m.fromMe) continue;
+      const m = ordered[i]; if (!m.fromMe) continue;
       const d = Math.abs((m.timestamp || 0) - tSec);
       if (d < bestD) { bestD = d; bestI = i; }
     }
@@ -952,37 +905,26 @@ async function fetchRepliesFromChat(chat, outboundRef, maxReplies = 8) {
   const replies = [];
   const collectFrom = (startIdx) => {
     for (let i = startIdx; i < ordered.length; i++) {
-      const msg = ordered[i];
-      if (msg.fromMe) continue;
-      const body = incomingMessageText(msg);
-      if (!body) continue;
-      replies.push(buildReplyRow(msg, chat, i));
-      if (replies.length >= maxReplies) break;
+      const msg = ordered[i]; if (msg.fromMe) continue;
+      const body = incomingMessageText(msg); if (!body) continue;
+      replies.push(buildReplyRow(msg, chat, i)); if (replies.length >= maxReplies) break;
     }
   };
 
-  if (anchorIndex >= 0) {
-    collectFrom(anchorIndex + 1);
-    if (replies.length) return replies;
-  }
+  if (anchorIndex >= 0) { collectFrom(anchorIndex + 1); if (replies.length) return replies; }
 
-  // Fallback: all incoming from contact after sentAt - 15s
   const sinceMs = (Number(outboundRef.timestamp) || 0) - 15_000;
   for (const msg of ordered) {
     if (msg.fromMe) continue;
-    const tsMs = (msg.timestamp || 0) * 1000;
-    if (tsMs < sinceMs) continue;
-    const body = incomingMessageText(msg);
-    if (!body) continue;
+    const tsMs = (msg.timestamp || 0) * 1000; if (tsMs < sinceMs) continue;
+    const body = incomingMessageText(msg); if (!body) continue;
     replies.push(buildReplyRow(msg, chat, 'fb'));
     if (replies.length >= maxReplies) break;
   }
   return replies;
 }
 
-/* =========================================================
- * OPT-OUT DETECTION
- * ======================================================= */
+/* ─── Opt-out detection ──────────────────────────────────────── */
 
 function isOptOutText(raw) {
   const text = (raw || '').trim().toLowerCase();
@@ -991,29 +933,90 @@ function isOptOutText(raw) {
   return false;
 }
 
-/* =========================================================
- * FAILURE CONTROL
- * ======================================================= */
+/* ─── Failure control ────────────────────────────────────────── */
 
-function resetConsecutiveFailures() {
-  consecutiveFailures = 0;
+function resetConsecutiveFailures(tenantId) {
+  getTenantState(tenantId).consecutiveFailures = 0;
 }
 
-function incrementFailures() {
-  return ++consecutiveFailures;
+function incrementFailures(tenantId) {
+  const state = getTenantState(tenantId);
+  return ++state.consecutiveFailures;
 }
 
-function getConsecutiveFailures() {
-  return consecutiveFailures;
+function getConsecutiveFailures(tenantId) {
+  return getTenantState(tenantId).consecutiveFailures;
 }
 
-/* =========================================================
- * EXPORTS
- * ======================================================= */
+function getTenantStateForAdmin(tenantId) {
+  return getTenantState(tenantId);
+}
+
+/* ─── Auto-reconexão ao iniciar o servidor ───────────────────── */
+
+/**
+ * Ao subir o backend, verifica quais tenants tinham sessão no banco
+ * (status='connected' ou 'qr_ready') E cuja pasta de auth ainda existe.
+ * Para esses, re-inicializa o cliente automaticamente — o LocalAuth
+ * restaura a sessão sem precisar escanear o QR de novo.
+ */
+async function autoReconnectSessions(io) {
+  try {
+    const { getDb } = require('../db');
+    const { whatsappSessions, tenants } = require('../db/schema');
+    const { eq, and, inArray } = require('drizzle-orm');
+    const db = getDb();
+
+    const sessions = await db.select({
+      tenantId: whatsappSessions.tenantId,
+      status:   whatsappSessions.status,
+    }).from(whatsappSessions)
+      .where(inArray(whatsappSessions.status, ['connected', 'qr_ready']));
+
+    if (!sessions.length) {
+      console.log('[wa-autoreconnect] nenhuma sessão pendente de restaurar');
+      return;
+    }
+
+    // Filtra só tenants ativos
+    const tenantIds = sessions.map((s) => s.tenantId);
+    const activeTenants = await db.select({ id: tenants.id }).from(tenants)
+      .where(and(inArray(tenants.id, tenantIds), eq(tenants.active, true)));
+    const activeSet = new Set(activeTenants.map((t) => t.id));
+
+    let started = 0;
+    for (const s of sessions) {
+      if (!activeSet.has(s.tenantId)) continue;
+
+      // Só tenta reconectar se a pasta de auth do LocalAuth existe
+      const authDir = path.join(WWEBJS_DATA_PATH, `session-${s.tenantId}`);
+      if (!fs.existsSync(authDir)) {
+        console.log(`[wa-autoreconnect] tenant=${s.tenantId} sem cache local — ignora`);
+        continue;
+      }
+
+      try {
+        initWhatsApp(s.tenantId, io);
+        started++;
+        console.log(`[wa-autoreconnect] tenant=${s.tenantId} reconectando…`);
+      } catch (e) {
+        console.warn(`[wa-autoreconnect] tenant=${s.tenantId} falhou:`, e.message);
+      }
+    }
+    console.log(`[wa-autoreconnect] ${started} sessão(ões) restaurada(s) em background`);
+  } catch (err) {
+    console.warn('[wa-autoreconnect] erro geral:', err.message);
+  }
+}
+
+/* ─── Exports ────────────────────────────────────────────────── */
 
 module.exports = {
   initWhatsApp,
   getStatus,
+  getClientFor,
+  getTenantState: getTenantStateForAdmin,
+  autoReconnectSessions,
   sendMessage,
   getChatByPhone,
   listIncomingMessagesSince,

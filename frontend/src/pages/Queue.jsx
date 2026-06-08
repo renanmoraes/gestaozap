@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Clock, RefreshCw, XCircle, CheckCircle2, AlertCircle, Loader2, Inbox } from 'lucide-react';
+import { Clock, RefreshCw, XCircle, CheckCircle2, AlertCircle, Loader2, Inbox, Pause, Play } from 'lucide-react';
 import api from '../api';
 
 function fmtTs(ts) {
@@ -17,7 +17,15 @@ function resultSummary(r) {
   return null;
 }
 
-function StatusBadge({ state }) {
+function StatusBadge({ state, paused }) {
+  if (paused) {
+    return (
+      <span className="badge-yellow">
+        <Pause className="w-3 h-3" />
+        Pausado
+      </span>
+    );
+  }
   const map = {
     completed: { label: 'Concluído', cls: 'badge-green', Icon: CheckCircle2 },
     active: { label: 'Em andamento', cls: 'badge-blue', Icon: Loader2 },
@@ -48,7 +56,11 @@ export default function Queue() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, [load]);
 
   const cancel = async (id) => {
     setActing(id);
@@ -58,6 +70,16 @@ export default function Queue() {
   const retry = async (id) => {
     setActing(id);
     try { await api.post(`/api/queue/jobs/${id}/retry`); await load(); } finally { setActing(null); }
+  };
+
+  const pause = async (id) => {
+    setActing(id);
+    try { await api.post(`/api/queue/jobs/${id}/pause`); await load(); } finally { setActing(null); }
+  };
+
+  const resume = async (id) => {
+    setActing(id);
+    try { await api.post(`/api/queue/jobs/${id}/resume`); await load(); } finally { setActing(null); }
   };
 
   return (
@@ -100,7 +122,7 @@ export default function Queue() {
                         </p>
                       </div>
                       <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
-                        <StatusBadge state={job.state} />
+                        <StatusBadge state={job.state} paused={job.paused} />
                         {res && <span className={`badge-${res.color}`}>{res.text}</span>}
                       </div>
                     </div>
@@ -130,6 +152,26 @@ export default function Queue() {
                     {/* Ações */}
                     {(job.state === 'active' || job.state === 'waiting' || job.state === 'failed') && (
                       <div className="flex gap-2 justify-end">
+                        {job.state === 'active' && !job.paused && (
+                          <button
+                            onClick={() => pause(job.id)}
+                            disabled={acting === job.id}
+                            className="btn-secondary py-1.5 px-3 text-xs"
+                          >
+                            {acting === job.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
+                            Pausar
+                          </button>
+                        )}
+                        {job.state === 'active' && job.paused && (
+                          <button
+                            onClick={() => resume(job.id)}
+                            disabled={acting === job.id}
+                            className="btn-primary py-1.5 px-3 text-xs"
+                          >
+                            {acting === job.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                            Retomar
+                          </button>
+                        )}
                         {(job.state === 'active' || job.state === 'waiting') && (
                           <button
                             onClick={() => cancel(job.id)}

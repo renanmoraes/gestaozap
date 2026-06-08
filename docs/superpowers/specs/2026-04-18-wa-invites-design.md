@@ -1,4 +1,4 @@
-# WA Invites — Design Spec
+# GestãoZap — Design Spec
 **Data:** 2026-04-18
 **Status:** Aprovado
 
@@ -70,7 +70,7 @@ Ferramenta local para envio de convites personalizados via WhatsApp pessoal para
 ## Estrutura de Pastas
 
 ```
-wa-invites/
+gestaozap/
 ├── docker-compose.yml
 ├── backend/
 │   ├── Dockerfile

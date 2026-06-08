@@ -1,3 +1,9 @@
+jest.mock('../config/queue', () => ({
+  sendQueue: { process: jest.fn() },
+  isCancelRequested: jest.fn().mockResolvedValue(false),
+  clearCancelFlag: jest.fn().mockResolvedValue(undefined),
+}));
+
 const { buildAntibanDelay, shouldPauseBatch, buildMessage } = require('../services/queue.service');
 
 describe('buildAntibanDelay', () => {

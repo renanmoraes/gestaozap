@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload } from 'lucide-react';
+import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download } from 'lucide-react';
 import api from '../api';
 import { useSocket } from '../hooks/useSocket';
+import { formatPhone, maskPhoneInput } from '../utils/phone';
+import ImportContactsModal from '../components/ImportContactsModal';
+import { Smartphone } from 'lucide-react';
 
 export default function Contacts() {
   const [contacts, setContacts] = useState([]);
@@ -12,6 +15,7 @@ export default function Contacts() {
   const [editForm, setEditForm] = useState({ name: '', phone: '', tags: '' });
   const [importText, setImportText] = useState('');
   const [showImport, setShowImport] = useState(false);
+  const [showWaImport, setShowWaImport] = useState(false);
   const [showOptedOut, setShowOptedOut] = useState(false);
   const [optOutToast, setOptOutToast] = useState(null);
 
@@ -90,8 +94,25 @@ export default function Contacts() {
             <UserX className="w-3.5 h-3.5" />
             {showOptedOut ? 'Ocultar opt-out' : 'Ver opt-out'}
           </button>
+          <button
+            onClick={() => {
+              // Dispara download direto pelo navegador
+              const a = document.createElement('a');
+              a.href = '/api/contacts/export';
+              a.download = ''; // o backend já manda Content-Disposition com nome do arquivo
+              a.click();
+            }}
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            title="Baixar backup JSON com todos os contatos"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Backup
+          </button>
+          <button onClick={() => setShowWaImport(true)} className="btn-primary">
+            <Smartphone className="w-4 h-4" />Importar do WhatsApp
+          </button>
           <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">
-            <Upload className="w-4 h-4" />Importar
+            <Upload className="w-4 h-4" />Colar lista
           </button>
         </div>
       </div>
@@ -128,8 +149,9 @@ export default function Contacts() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Telefone (com DDD)</label>
-                <input className="input" placeholder="5511999999999" value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })} required />
+                <input className="input font-mono" placeholder="(11) 98765-4321"
+                  value={formatPhone(form.phone)}
+                  onChange={(e) => setForm({ ...form, phone: maskPhoneInput(e.target.value) })} required />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Tags (separadas por vírgula)</label>
@@ -183,8 +205,8 @@ export default function Contacts() {
                           <div className="grid grid-cols-2 gap-2">
                             <input className="input text-xs" value={editForm.name}
                               onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
-                            <input className="input text-xs" value={editForm.phone}
-                              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                            <input className="input text-xs font-mono" value={formatPhone(editForm.phone)}
+                              onChange={(e) => setEditForm({ ...editForm, phone: maskPhoneInput(e.target.value) })} />
                           </div>
                           <input className="input text-xs" placeholder="tags separadas por vírgula"
                             value={editForm.tags} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} />
@@ -203,7 +225,7 @@ export default function Contacts() {
                                 <span key={t} className="badge-gray">{t}</span>
                               ))}
                             </div>
-                            <div className="text-xs text-slate-400 mt-0.5">{c.phone}</div>
+                            <div className="text-xs text-slate-400 mt-0.5 font-mono">{formatPhone(c.phone)}</div>
                           </div>
                           <div className="flex gap-1 shrink-0">
                             <button onClick={() => toggleOptOut(c)} title={c.optedOut ? 'Reativar' : 'Opt-out'}
@@ -232,9 +254,15 @@ export default function Contacts() {
           <span className="text-lg">📵</span>
           <div>
             <p className="text-sm font-medium text-slate-900">{optOutToast.name} saiu do evento</p>
-            <p className="text-xs text-slate-500">{optOutToast.phone}</p>
+            <p className="text-xs text-slate-500 font-mono">{formatPhone(optOutToast.phone)}</p>
           </div>
         </div>
+      )}
+      {showWaImport && (
+        <ImportContactsModal
+          onClose={() => setShowWaImport(false)}
+          onComplete={() => load()}
+        />
       )}
     </>
   );

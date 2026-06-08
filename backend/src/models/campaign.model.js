@@ -1,9 +1,3 @@
-const { Schema, model } = require('mongoose');
-
-const campaignSchema = new Schema({
-  name: { type: String, required: true },
-  text: { type: String, required: true },
-  imagePath: String,
-}, { timestamps: true });
-
-module.exports = model('Campaign', campaignSchema);
+// Modelo substituído por Drizzle ORM — use getDb() + schema.campaigns diretamente nas rotas
+const { campaigns } = require('../db/schema');
+module.exports = campaigns;

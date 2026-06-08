@@ -1,44 +1,252 @@
-import React from 'react';
-import { Routes, Route, NavLink } from 'react-router-dom';
-import Session from './pages/Session';
-import Contacts from './pages/Contacts';
-import Campaigns from './pages/Campaigns';
-import Send from './pages/Send';
-import History from './pages/History';
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import {
+  Smartphone, Users, FileText, Send, Clock, BarChart2, Database,
+  ChevronLeft, ChevronRight, Zap, CreditCard, LogOut,
+  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud,
+} from 'lucide-react';
 
-const nav = [
-  { to: '/', label: 'Sessão' },
-  { to: '/contacts', label: 'Contatos' },
-  { to: '/campaigns', label: 'Campanhas' },
-  { to: '/send', label: 'Disparo' },
-  { to: '/history', label: 'Histórico' },
+// Context & componentes
+import { TenantProvider, useTenant } from './context/TenantContext';
+import WaGate from './components/WaGate';
+
+// Páginas tenant
+import Session    from './pages/Session';
+import Contacts   from './pages/Contacts';
+import Campaigns  from './pages/Campaigns';
+import SendPage   from './pages/Send';
+import History    from './pages/History';
+import Queue      from './pages/Queue';
+import Backup     from './pages/Backup';
+import Billing    from './pages/Billing';
+import Login      from './pages/Login';
+import Chat         from './pages/Chat';
+import QuickReplies from './pages/QuickReplies';
+
+// Páginas admin
+import AdminLogin      from './pages/admin/AdminLogin';
+import AdminTenants    from './pages/admin/AdminTenants';
+import AdminConfig     from './pages/admin/AdminConfig';
+import AdminAffiliates    from './pages/admin/AdminAffiliates';
+import AdminTenantDetail  from './pages/admin/AdminTenantDetail';
+import AdminStorage       from './pages/admin/AdminStorage';
+
+// Página pública de registro via afiliado
+import Register from './pages/Register';
+
+/* ─── Detecção de contexto ────────────────────────────────── */
+
+function isAdminSubdomain() {
+  const h = window.location.hostname;
+  // Em dev: usar ?admin=1 na URL para abrir o painel admin
+  if (h === 'localhost' || h === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(h)) {
+    return new URLSearchParams(window.location.search).get('admin') === '1';
+  }
+  // Em produção: detecta admin.gestaozap.digital
+  return h.split('.')[0] === 'admin';
+}
+
+/* ─── App Admin ───────────────────────────────────────────── */
+
+const ADMIN_NAV = [
+  { to: '/tenants',    label: 'Clientes',          icon: Building2 },
+  { to: '/affiliates', label: 'Afiliados',         icon: UserCheck },
+  { to: '/storage',    label: 'Armazenamento',     icon: Cloud },
+  { to: '/config',     label: 'Configurações',     icon: Settings },
 ];
 
-export default function App() {
+function AdminApp() {
+  const [token, setToken] = useState(() => localStorage.getItem('gestaozap_admin_token'));
+
+  const logout = () => {
+    localStorage.removeItem('gestaozap_admin_token');
+    setToken(null);
+  };
+
+  if (!token) return <AdminLogin onLogin={setToken} />;
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <nav className="bg-green-600 text-white px-6 py-3 flex gap-6">
-        <span className="font-bold mr-4">WA Invites</span>
-        {nav.map(n => (
-          <NavLink
-            key={n.to}
-            to={n.to}
-            end={n.to === '/'}
-            className={({ isActive }) => isActive ? 'underline font-semibold' : 'hover:underline'}
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Sidebar admin */}
+      <aside className="w-56 bg-sidebar flex flex-col shrink-0">
+        <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800">
+          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-4 h-4 text-white" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-white font-semibold text-sm leading-none">GestãoZap</div>
+            <div className="text-slate-400 text-xs mt-0.5">Admin</div>
+          </div>
+        </div>
+
+        <nav className="flex-1 px-2 py-4 space-y-0.5">
+          {ADMIN_NAV.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  isActive ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`
+              }
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="text-sm font-medium">{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="px-2 py-4 border-t border-slate-800">
+          <button
+            onClick={logout}
+            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            {n.label}
-          </NavLink>
-        ))}
-      </nav>
-      <main className="flex-1 p-6 max-w-4xl mx-auto w-full">
+            <LogOut className="w-4 h-4" />
+            <span className="text-sm font-medium">Sair</span>
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 overflow-auto">
+        <div className="p-6">
+          <Routes>
+            <Route path="/tenants"        element={<AdminTenants />} />
+            <Route path="/tenants/:id"    element={<AdminTenantDetail />} />
+            <Route path="/affiliates"     element={<AdminAffiliates />} />
+            <Route path="/storage"        element={<AdminStorage />} />
+            <Route path="/config"         element={<AdminConfig />} />
+            <Route path="*"               element={<Navigate to="/tenants" replace />} />
+          </Routes>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/* ─── App Tenant ──────────────────────────────────────────── */
+
+const TENANT_NAV = [
+  { to: '/',               label: 'WhatsApp',         icon: Smartphone, end: true },
+  { to: '/chat',           label: 'Conversas',        icon: MessageCircle },
+  { to: '/contacts',       label: 'Contatos',         icon: Users },
+  { to: '/quick-replies',  label: 'Mensagens rápidas', icon: Zap },
+  { to: '/campaigns',      label: 'Templates',        icon: FileText },
+  { to: '/send',           label: 'Disparo',          icon: Send },
+  { to: '/queue',          label: 'Fila',             icon: Clock },
+  { to: '/history',        label: 'Histórico',        icon: BarChart2 },
+  { to: '/backup',         label: 'Backup',           icon: Database },
+  { to: '/billing',        label: 'Financeiro',       icon: CreditCard },
+];
+
+function TenantLayout() {
+  const { isAuthenticated, isLoading, tenant, waStatus, logout } = useTenant();
+  const [open, setOpen] = useState(true);
+
+  // Página pública de registro via link de afiliado — sem auth
+  if (window.location.pathname === '/registrar') return <Register />;
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <span className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Login />;
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex">
+      <aside className={`${open ? 'w-56' : 'w-16'} bg-sidebar flex flex-col shrink-0 transition-all duration-200`}>
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shrink-0">
+            <Zap className="w-4 h-4 text-white" />
+          </div>
+          {open && (
+            <div className="min-w-0">
+              <div className="text-white font-semibold text-sm leading-none truncate">
+                {tenant?.tenantName || 'GestãoZap'}
+              </div>
+              <div className="text-slate-400 text-xs mt-0.5 flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${waStatus === 'connected' ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                {waStatus === 'connected' ? 'Conectado' : 'Desconectado'}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 px-2 py-4 space-y-0.5">
+          {TENANT_NAV.map(({ to, label, icon: Icon, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              title={!open ? label : undefined}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  isActive ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`
+              }
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              {open && <span className="text-sm font-medium">{label}</span>}
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* Footer */}
+        <div className="px-2 py-4 border-t border-slate-800 space-y-0.5">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            title={open ? 'Recolher menu' : 'Expandir menu'}
+          >
+            {open ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            {open && <span className="text-sm font-medium">Recolher</span>}
+          </button>
+          <button
+            onClick={logout}
+            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Sair"
+          >
+            <LogOut className="w-4 h-4 shrink-0" />
+            {open && <span className="text-sm font-medium">Sair</span>}
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 overflow-auto flex flex-col min-h-screen">
         <Routes>
-          <Route path="/" element={<Session />} />
-          <Route path="/contacts" element={<Contacts />} />
-          <Route path="/campaigns" element={<Campaigns />} />
-          <Route path="/send" element={<Send />} />
-          <Route path="/history" element={<History />} />
+          <Route path="/"               element={<Session />} />
+          <Route path="/chat"           element={<WaGate><Chat /></WaGate>} />
+          <Route path="/chat/:chatId"   element={<WaGate><Chat /></WaGate>} />
+          <Route path="/contacts"       element={<Contacts />} />
+          <Route path="/quick-replies"  element={<QuickReplies />} />
+          <Route path="/campaigns"      element={<Campaigns />} />
+          <Route path="/send"           element={<WaGate><SendPage /></WaGate>} />
+          <Route path="/queue"          element={<Queue />} />
+          <Route path="/history"        element={<History />} />
+          <Route path="/backup"         element={<Backup />} />
+          <Route path="/billing"        element={<Billing />} />
+          <Route path="*"               element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>
+  );
+}
+
+/* ─── Root ────────────────────────────────────────────────── */
+
+export default function App() {
+  if (isAdminSubdomain()) {
+    return <AdminApp />;
+  }
+
+  return (
+    <TenantProvider>
+      <TenantLayout />
+    </TenantProvider>
   );
 }

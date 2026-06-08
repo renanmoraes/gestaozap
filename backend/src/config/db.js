@@ -1,8 +1,13 @@
-const mongoose = require('mongoose');
+const { getPool } = require('../db');
+const { runMigrations, ensureDefaultTenant } = require('../db/migrate');
+const { seedPlatformConfig } = require('../db/seeds');
 
 async function connectDB() {
-  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/wa-invites');
-  console.log('MongoDB connected');
+  const pool = getPool();
+  await runMigrations(pool);
+  await ensureDefaultTenant(pool);
+  await seedPlatformConfig(pool);
+  console.log('[db] PostgreSQL conectado e pronto');
 }
 
 module.exports = { connectDB };
