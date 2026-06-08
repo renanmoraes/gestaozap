@@ -7,3 +7,5 @@ uploads/
 backups/
 *.log
 password.md
+# Git worktrees (isolated workspaces)
+.worktrees/
