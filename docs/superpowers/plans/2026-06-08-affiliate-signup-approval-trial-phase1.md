@@ -87,7 +87,12 @@ Em `tenants` (após `termsVersion`):
   approvalStatus: varchar('approval_status', { length: 20 }).notNull().default('pending'),
   document: varchar('document', { length: 20 }),
   documentType: varchar('document_type', { length: 4 }),
+  // Estas colunas JÁ EXISTEM no banco (migrate.js:256-257) mas faltam no schema.js —
+  // sem elas o insert drizzle do signup descarta o vínculo de afiliado. Adicionar:
+  affiliateCode: varchar('affiliate_code', { length: 50 }),
+  affiliateId: uuid('affiliate_id'),
 ```
+(FK de `affiliate_id` já é garantida pelo banco; não precisa de `.references()` no drizzle.)
 Em `contracts` (após `autoRenew`):
 ```js
   isTrial: boolean('is_trial').notNull().default(false),
@@ -114,8 +119,10 @@ docker compose exec -T backend npm run db:migrate
 docker compose exec -T postgres psql -U wa_invites -d wa_invites -c "\d tenants" | grep -E "approval_status|document"
 docker compose exec -T postgres psql -U wa_invites -d wa_invites -c "SELECT approval_status, count(*) FROM tenants GROUP BY 1;"
 docker compose exec -T postgres psql -U wa_invites -d wa_invites -c "SELECT key,value FROM platform_config WHERE key='trial_days';"
+# confirmar que expires_at é NULLABLE (migrate.js faz DROP NOT NULL com .catch) — o helper de acesso depende disso p/ vitalício
+docker compose exec -T postgres psql -U wa_invites -d wa_invites -c "SELECT is_nullable FROM information_schema.columns WHERE table_name='contracts' AND column_name='expires_at';"
 ```
-Expected: colunas presentes; tenants existentes com `approved`; `trial_days=7`.
+Expected: colunas presentes; tenants existentes com `approved`; `trial_days=7`; `expires_at` `is_nullable=YES`.
 
 - [ ] **Step 5: Commit**
 ```bash
@@ -505,7 +512,8 @@ router.post('/', async (req, res) => {
 module.exports = router;
 ```
 
-> Nota: `affiliate_referrals` exige alguns campos `NOT NULL DEFAULT 0` (original/discount/final/commission BRL) — eles têm default no banco, então omiti-los é seguro. Se o executor encontrar erro de NOT NULL, preencher com `'0'`.
+> Nota 1: `affiliate_referrals` exige alguns campos `NOT NULL DEFAULT 0` (original/discount/final/commission BRL) — eles têm default no banco, então omiti-los é seguro. Se o executor encontrar erro de NOT NULL, preencher com `'0'`.
+> Nota 2: a `company` é criada com `active: true` enquanto o `tenant` fica `active: false`/`pending`. **É intencional** — `login()` checa `company.active` (deve passar para o cliente pendente logar), e o bloqueio de produto é feito pelo gate da Task 8. Não "corrigir" para `company.active=false`.
 
 - [ ] **Step 2: Montar a rota e aposentar a antiga em app.js**
 
@@ -550,6 +558,38 @@ git commit -m "feat(signup): public pre-signup endpoint creating pending tenant 
 
 **Files:**
 - Modify: `backend/src/services/auth.service.js:51-78` (função `login`)
+- Modify: `backend/src/routes/auth.routes.js:48-59` (rota `POST /login` — relaxar guard de companyId)
+- Modify: `backend/src/middleware/tenantResolver.js:38-40` (não bloquear tenant inativo — deixar o gate decidir)
+
+- [ ] **Step 0a: Relaxar o `tenantResolver` para resolver tenant inativo**
+
+Hoje `tenantResolver` retorna `403 TENANT_INACTIVE` quando `!tenant.active` (linha 38-40). Como o **login também usa `tenantResolver`**, uma conta `pending`/trial-expirado (`active=false`) seria barrada antes de logar. Remover esse bloqueio precoce — apenas resolver e anexar o tenant; quem decide acesso a negócio é o gate da Task 8:
+```js
+    if (!tenant) {
+      return res.status(404).json({ error: 'Conta não encontrada' });
+    }
+    // (removido o early-return TENANT_INACTIVE — o gate de rotas de negócio
+    //  em requireTenant decide via tenantAccessState; login precisa passar.)
+    req.tenant = tenant;
+    next();
+```
+
+- [ ] **Step 0b: Relaxar o guard da rota de login (auth.routes.js)**
+
+Hoje a rota rejeita `companyId` vazio **antes** de chamar `login()` (`auth.routes.js:52`). Trocar o guard para exigir só email+senha e repassar `companyId` mesmo quando ausente:
+```js
+router.post('/login', tenantResolver, async (req, res) => {
+  try {
+    const { companyId, email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
+    const result = await login(companyId ?? '', email, password, {
+      tenantId: req.tenant?.id || null,
+      isAdminHost: isAdminHost(req) || Boolean(req.isAdminHost),
+    });
+    // ...resto inalterado
+```
 
 - [ ] **Step 1: Tornar companyId opcional para cliente**
 
@@ -616,17 +656,20 @@ git commit -m "feat(auth): client login by subdomain (companyId optional)"
 - Modify: `backend/src/middleware/requireTenant.js`
 - Reference: `backend/src/utils/access.util.js`, `backend/src/db/schema.js` (contracts)
 
-- [ ] **Step 1: Ler o requireTenant.js atual** para entender como o tenant é resolvido/anexado a `req` (ex.: `req.tenant`/`req.tenantId`).
+> Pré-requisito: o `tenantResolver` foi relaxado na Task 7 (Step 0a) e agora anexa `req.tenant` mesmo para tenant inativo. As rotas de negócio são `app.use('/api/...', tenantResolver, authGuard, ...)` onde `authGuard = requireTenant` (quando `AUTH_REQUIRED`). Logo, `req.tenant` (linha completa de `tenants`, com `approvalStatus`) está disponível em `requireTenant`.
+
+- [ ] **Step 1: Ler o requireTenant.js atual** para ver onde validar o token/sessão e onde já existe acesso a `req.tenant`.
 
 - [ ] **Step 2: Aplicar o gate**
 
-Após o tenant ser resolvido, carregar o contrato mais recente e aplicar `tenantAccessState`. Esboço a integrar conforme o padrão do arquivo:
+Usando `req.tenant` (de `tenantResolver`), carregar o contrato mais recente e aplicar `tenantAccessState`. Esboço a integrar conforme o padrão do arquivo:
 ```js
 const { eq, desc } = require('drizzle-orm');
 const { contracts } = require('../db/schema');
 const { tenantAccessState } = require('../utils/access.util');
 
-// ...depois de obter o objeto `tenant` (com approvalStatus):
+// req.tenant já vem do tenantResolver (linha completa de tenants, com approvalStatus)
+const tenant = req.tenant;
 const [contract] = await db.select().from(contracts)
   .where(eq(contracts.tenantId, tenant.id))
   .orderBy(desc(contracts.createdAt))
@@ -636,7 +679,6 @@ const state = tenantAccessState(tenant, contract);
 if (state !== 'active') {
   return res.status(403).json({ error: 'Acesso indisponível', state });
 }
-req.tenant = tenant;
 next();
 ```
 Importante: o login (`/api/auth/*`) NÃO passa por esse gate — apenas as rotas de negócio (`/api/session`, `/api/send`, etc.), que já usam `authGuard`/`requireTenant`. Assim, conta `pending`/`trial_expired` loga mas recebe `403 {state}` nas rotas de negócio.
