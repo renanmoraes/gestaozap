@@ -1,10 +1,8 @@
 const router = require('express').Router();
-const { createHash, randomBytes } = require('crypto');
 const { eq, and, lte, sql, desc } = require('drizzle-orm');
 const { getDb } = require('../db');
 const {
   tenants,
-  adminSessions,
   whatsappSessions,
   platformConfig,
   plans,
@@ -14,43 +12,6 @@ const {
 } = require('../db/schema');
 const { refreshConfig } = require('../config/platform');
 const { registerProcessorForTenant } = require('../services/queue.service');
-
-function generateToken() { return randomBytes(32).toString('hex'); }
-function hashToken(raw) { return createHash('sha256').update(raw).digest('hex'); }
-
-/* ─── Login ─────────────────────────────────────────────── */
-
-/**
- * Handler de login admin — registrado como rota pública em app.js
- * (antes do requireAdmin middleware).
- */
-async function loginHandler(req, res) {
-  try {
-    const { email, secret } = req.body || {};
-    const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@gestaozap.digital';
-    const ADMIN_SECRET = process.env.ADMIN_SECRET;
-
-    if (!ADMIN_SECRET) {
-      return res.status(503).json({ error: 'Painel admin não configurado (ADMIN_SECRET ausente)' });
-    }
-
-    if (!email || !secret || email !== ADMIN_EMAIL || secret !== ADMIN_SECRET) {
-      return res.status(401).json({ error: 'Credenciais inválidas' });
-    }
-
-    const rawToken = generateToken();
-    const sessionHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-
-    const db = getDb();
-    await db.insert(adminSessions).values({ sessionHash, expiresAt });
-
-    res.json({ token: rawToken, expiresAt });
-  } catch (err) {
-    console.error('admin login:', err);
-    res.status(500).json({ error: err.message });
-  }
-}
 
 /* ─── Tenants (Clientes) ─────────────────────────────────── */
 
@@ -64,11 +25,13 @@ router.get('/tenants', async (req, res) => {
         ws.status AS wa_status,
         c.status AS contract_status,
         c.expires_at AS contract_expires_at,
-        p.name AS plan_name
+        p.name AS plan_name,
+        co.company_id AS company_id
       FROM tenants t
       LEFT JOIN whatsapp_sessions ws ON ws.tenant_id = t.id
       LEFT JOIN contracts c ON c.tenant_id = t.id AND c.status = 'active'
       LEFT JOIN plans p ON p.id = c.plan_id
+      LEFT JOIN companies co ON co.tenant_id = t.id
       ORDER BY t.created_at DESC
     `);
     res.json(rows.rows);
@@ -81,10 +44,14 @@ router.get('/tenants', async (req, res) => {
 router.post('/tenants', async (req, res) => {
   try {
     const db = getDb();
-    const { slug, name, registeredPhone, planSlug, expiryDays = 30 } = req.body;
+    const { slug, name, registeredPhone, planSlug, expiryDays = 30, contactEmail } = req.body;
 
-    if (!slug || !name || !registeredPhone) {
-      return res.status(400).json({ error: 'slug, name e registeredPhone são obrigatórios' });
+    if (!slug || !name || !registeredPhone || !contactEmail) {
+      return res.status(400).json({ error: 'slug, name, registeredPhone e contactEmail são obrigatórios' });
+    }
+
+    if (!contactEmail.includes('@')) {
+      return res.status(400).json({ error: 'contactEmail inválido' });
     }
 
     const [tenant] = await db.insert(tenants).values({
@@ -94,23 +61,19 @@ router.post('/tenants', async (req, res) => {
       active: true,
     }).returning();
 
-    // Sessão WhatsApp vazia para o novo tenant
     await db.insert(whatsappSessions).values({
       tenantId: tenant.id,
       status: 'disconnected',
     });
 
-    // Registra processor de fila em runtime (sem precisar reiniciar o servidor)
     const { getIo } = require('../config/registry');
     const io = getIo();
     if (io) registerProcessorForTenant(tenant.id, io);
 
-    // Contrato inicial se plano fornecido
     if (planSlug) {
       const [plan] = await db.select().from(plans).where(eq(plans.slug, planSlug));
       if (plan) {
         const now = new Date();
-        // expiryDays = 0 → contrato vitalício (expires_at = NULL)
         const expiresAt = expiryDays > 0
           ? new Date(now.getTime() + expiryDays * 24 * 60 * 60 * 1000)
           : null;
@@ -124,10 +87,42 @@ router.post('/tenants', async (req, res) => {
       }
     }
 
-    res.status(201).json(tenant);
+    const { provisionClientAccess } = require('../services/auth.service');
+    const { sendWelcomeEmail } = require('../services/welcome-email.service');
+
+    const provision = await provisionClientAccess({
+      tenantId: tenant.id,
+      tenantName: name,
+      contactEmail,
+    });
+
+    let emailResult = { sent: false };
+    try {
+      emailResult = await sendWelcomeEmail({
+        to: contactEmail,
+        companyId: provision.companyId,
+        email: provision.email,
+        tempPassword: provision.tempPassword,
+        tenantName: name,
+        slug: tenant.slug,
+      });
+    } catch (emailErr) {
+      console.error('welcome email failed:', emailErr.message);
+      emailResult = { sent: false, error: emailErr.message };
+    }
+
+    res.status(201).json({
+      ...tenant,
+      companyId: provision.companyId,
+      contactEmail: provision.email,
+      emailSent: emailResult.sent,
+      ...(process.env.NODE_ENV !== 'production' && !emailResult.sent
+        ? { devCredentials: { companyId: provision.companyId, email: provision.email, password: provision.tempPassword } }
+        : {}),
+    });
   } catch (err) {
     if (err.code === '23505') {
-      return res.status(409).json({ error: 'Slug já existe' });
+      return res.status(409).json({ error: 'Slug ou email já existe' });
     }
     console.error('admin post tenant:', err);
     res.status(500).json({ error: err.message });
@@ -785,4 +780,3 @@ async function runBackfillInBackground() {
 }
 
 module.exports = router;
-module.exports.loginHandler = loginHandler;
