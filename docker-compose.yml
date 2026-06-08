@@ -16,10 +16,15 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - PORT=3001
+      - NODE_ENV=${NODE_ENV:-production}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gestaozap.digital}
       - ADMIN_SECRET=${ADMIN_SECRET:-dev-secret-change-in-production}
       # AUTH_REQUIRED=true: exige token Bearer em todas as rotas de negócio (ativar em produção)
       - AUTH_REQUIRED=${AUTH_REQUIRED:-false}
+      # Email transacional (Resend) — boas-vindas e reset de senha
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - RESEND_FROM=${RESEND_FROM:-noreply@gestaozap.digital}
+      - APP_BASE_DOMAIN=${APP_BASE_DOMAIN:-gestaozap.digital}
     depends_on:
       postgres:
         condition: service_healthy
