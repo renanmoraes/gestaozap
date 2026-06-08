@@ -51,18 +51,28 @@ Este spec cobre a **Fase 1**: pré-cadastro self-service com CPF/CNPJ, slug auto
 6. **Fim do trial:** o cron detecta `expires_at <= now` num contrato `is_trial` e **bloqueia os envios** (tenant entra em estado bloqueado), mas a conta segue acessível. Nesta fase, reativação/cobrança é **manual pelo admin**.
 7. **Pagamento confirmado (Fase 2 / webhook já existente):** 1ª parcela paga → contrato deixa de ser trial, envios reliberados, `affiliate_referral` vira `confirmed`.
 
+### Regra de acesso (autoritativa)
+
+Para evitar ambiguidade, o acesso é definido por **duas regras separadas**:
+
+- **Pode logar:** sempre que o `user` existir e estiver `active`. Login nunca depende de `approval_status` nem de contrato — isso garante que contas `pending`/`rejected`/trial-expirado consigam entrar e ver a tela informativa correta.
+- **Pode usar o produto (envios/rotas de negócio):** `tenant.approval_status='approved'` **E** existe um `contract` do tenant com `status='active'` **E** (`expires_at IS NULL` OU `expires_at > now`). Avaliado por um helper único (ex.: `tenantHasActiveAccess(tenant)`), usado pelo middleware de rotas de negócio.
+
+O middleware de negócio, quando o acesso é negado, retorna um **código de estado** (`pending_approval` | `rejected` | `trial_expired` | `no_contract`) que o frontend usa para escolher a tela.
+
 ### Máquina de estados da conta (tenant)
 
 `approval_status`: `pending` → `approved` | `rejected`
-Acesso ao produto é função de `approval_status='approved'` **e** `active=true` **e** contrato vigente.
 
-| Situação | approval_status | active | contrato | Login | Usa produto |
+| Situação | approval_status | contrato | Pode logar | Pode usar produto | Código p/ frontend |
 |---|---|---|---|---|---|
-| Pré-cadastrado | pending | false | nenhum | sim (vê tela "em análise") | não |
-| Aprovado / trial | approved | true | is_trial, vigente | sim | sim |
-| Rejeitado | rejected | false | nenhum | sim (vê tela "recusado") | não |
-| Trial expirado | approved | true | is_trial, vencido | sim | não (envios bloqueados) |
-| Pago (Fase 2) | approved | true | não-trial, vigente | sim | sim |
+| Pré-cadastrado | pending | nenhum | sim | não | `pending_approval` |
+| Aprovado / trial | approved | is_trial, vigente | sim | sim | — |
+| Rejeitado | rejected | nenhum | sim | não | `rejected` |
+| Trial expirado | approved | is_trial, `status='expired'` | sim | não | `trial_expired` |
+| Pago (Fase 2) | approved | não-trial, vigente | sim | sim | — |
+
+O flag `tenants.active` continua existindo e é gerenciado pelo admin (suspensão manual), mas **não é** o que o login checa — o gate de produto é a regra de acesso acima.
 
 ### Regras de slug
 
@@ -77,10 +87,19 @@ Acesso ao produto é função de `approval_status='approved'` **e** `active=true
 - Armazenado em `tenants.document` (somente dígitos) e `tenants.document_type` (`cpf`/`cnpj`).
 - Reuso na Fase 2 para criar o customer no Asaas (que exige `cpfCnpj`).
 
+### Login do cliente (mudança necessária)
+
+Hoje `auth.service.js::login(companyId, email, password, context)` exige um **`companyId` textual** (hex aleatório, ex.: `A1B2C3D4E5`) entregue no email de boas-vindas, e o `Login.jsx` tem um campo "Identificador da empresa". Para o self-service (cliente define a própria senha e acessa pelo subdomínio), exigir esse hex é inviável.
+
+**Mudança:** o login do cliente passa a ser **email + senha**, com a `company` resolvida pelo **tenant do subdomínio** (relação tenant↔company é 1:1 para clientes). Implementação compatível: `companyId` torna-se opcional em `login()`; quando ausente e `context.tenantId` presente (acesso por subdomínio de cliente), resolve a company por `company.tenantId = context.tenantId`. O **login admin** (sentinela `companyId='0'` em `admin.gestaozap.digital`) permanece inalterado. O campo "Identificador da empresa" é removido do `Login.jsx` no contexto de cliente.
+
+Como consequência, o `companyId` gerado no signup é interno (não precisa ser mostrado ao cliente).
+
 ### Premissas confirmadas
 
 - Slug auto-gerado e read-only no formulário (admin ajusta se preciso).
-- Cliente `pending` consegue logar, mas vê tela "conta em análise" em vez de bloquear o login.
+- Cliente `pending` consegue logar (email+senha no subdomínio), mas vê tela "conta em análise".
+- Senha: reutiliza `hashPassword` (bcrypt cost 10); mínimo de 8 caracteres; `must_change_pwd=false` no signup (cliente já definiu a própria senha).
 
 ## Modelo de dados (migrations idempotentes em `backend/src/db/migrate.js` + `schema.js`)
 
@@ -104,22 +123,25 @@ Todas via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` / `INSERT ... ON CONFLICT D
 - Valida: documento (formato+DV), email único (`users.email`), formato de senha (mínimo ex.: 8 chars).
 - Gera slug único a partir de `name`.
 - Valida afiliado se `affiliateCode` informado (reusa lógica existente).
-- Transação: cria `tenant`(pending) + `company` + `user` + `user_company` + `whatsapp_session` + `affiliate_referral`(pending, se houver). **Sem contrato.**
+- Transação: cria `tenant`(pending) + `company` + `user` + `user_company`(owner) + `whatsapp_session` + `affiliate_referral`(pending, se houver). **Sem contrato.**
+  - **Importante:** o `user` é criado aqui com a **senha escolhida pelo cliente** (`hashPassword`, `must_change_pwd=false`). NÃO usar `provisionClientAccess` (ele gera senha temporária e `must_change_pwd=true`). Reusar apenas `generateUniqueCompanyId` para o `companyId` interno.
 - Dispara email de "cadastro recebido".
 - Retorna `{ tenantId, slug, status: 'pending' }`.
 - O endpoint antigo `POST /api/affiliates/register` é aposentado (ou redirecionado) para evitar criar trial sem aprovação.
 
 ### Endpoints de admin (em `backend/src/routes/admin.routes.js`)
 - `GET /api/admin/tenants?status=pending` — fila de aprovação (já existe listagem de tenants; adicionar filtro por `approval_status`).
-- `POST /api/admin/tenants/:id/approve` — body opcional `{ slug?, trialDays? }`. Seta `approved`/`active`, cria contrato trial, notifica, registra processor.
-- `POST /api/admin/tenants/:id/reject` — seta `rejected`, notifica (opcional).
+- `POST /api/admin/tenants/:id/approve` — body opcional `{ slug?, trialDays? }`. Seta `approval_status='approved'` + `active=true`, cria `contract` trial (`is_trial=true`, `expires_at = now + trial_days`), notifica, registra processor de fila. **NÃO cria company/user** — já existem do signup (evita usuário/empresa duplicados). Idempotente: aprovar quem não está `pending` → 409.
+- `POST /api/admin/tenants/:id/reject` — seta `approval_status='rejected'`, `active=false`, notifica (opcional).
 
 ### Auth / acesso
-- Em `auth.service.js`/middleware (`requireTenant`/`requireAuth`): após login, expor `approval_status` e estado do contrato para o frontend decidir a tela. Bloquear rotas de negócio (envio) quando não `approved`+vigente.
-- Bloqueio de envios reaproveita o gate de tenant inativo/contrato vencido já existente.
+- `login()`: tornar `companyId` opcional para clientes — resolver a `company` por `context.tenantId` quando o acesso vier por subdomínio de cliente (ver "Login do cliente"). Admin (`'0'`) inalterado.
+- Middleware de rotas de negócio (`requireTenant`/`requireAuth`): aplicar a **regra de acesso** (helper `tenantHasActiveAccess`) e, quando negar, retornar o **código de estado** (`pending_approval`/`rejected`/`trial_expired`/`no_contract`) para o frontend.
+- O gate de envio passa a checar a regra de acesso (contrato vigente), não apenas `tenant.active`.
 
 ### Cron de trial (`backend/src/cron/contractExpiry.js`)
-- Ajustar `deactivateExpiredContracts`: ao expirar um contrato `is_trial`, **bloquear envios** (desconectar WA / marcar tenant bloqueado) mas **não apagar** a conta — distinguir "trial expirado" de "contrato pago vencido". Comportamento de cobrança automática fica para a Fase 2 (hook claramente isolado).
+- Ajustar `deactivateExpiredContracts`: ao expirar um contrato **`is_trial`**, marcar `contract.status='expired'` (isso já bloqueia envios pela regra de acesso) e **não apagar** a conta nem forçar `tenant.active=false` — login segue disponível para o cliente ver "trial encerrado". Distinguir via `is_trial` para a Fase 2 (hook de cobrança isolado).
+- Para contratos **não-trial** (pagos) vencidos, manter o comportamento atual (desativar tenant).
 
 ### Email
 - Reusar o serviço de email (Resend) existente: templates "cadastro recebido (em análise)", "cadastro aprovado — trial liberado", "cadastro recusado" (opcional).
@@ -131,8 +153,9 @@ Todas via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` / `INSERT ... ON CONFLICT D
 - Remover campo manual de slug; mostrar **preview read-only** do slug gerado a partir do nome.
 - Tela de sucesso passa a ser "Cadastro enviado! Sua conta está **em análise**. Avisaremos por email quando for aprovada." (não promete acesso imediato).
 
-### Login / tela do tenant
-- Tratar estados `pending`/`rejected`/trial-expirado: telas informativas ("conta em análise", "cadastro recusado", "trial encerrado").
+### Login / tela do tenant (`frontend/src/pages/Login.jsx`)
+- **Remover o campo "Identificador da empresa"** no login de cliente (subdomínio) — passa a ser só email + senha. (Login admin em `admin.gestaozap.digital` permanece como está.)
+- Tratar os códigos de estado retornados pelo middleware: telas informativas para `pending_approval` ("conta em análise"), `rejected` ("cadastro recusado") e `trial_expired` ("trial encerrado — pague para continuar").
 
 ### Admin
 - Fila de aprovação (em `AdminTenants.jsx` ou nova aba): lista pendentes com dados do cadastro (nome, documento, WhatsApp, afiliado, slug editável) + botões Aprovar/Rejeitar. Aprovar dispara início do trial.
