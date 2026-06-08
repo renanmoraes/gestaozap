@@ -254,23 +254,30 @@ const quickReplies = pgTable('quick_replies', {
   updatedAt:   timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-const tenantUsers = pgTable('tenant_users', {
+const companies = pgTable('companies', {
   id:        uuid('id').defaultRandom().primaryKey(),
-  tenantId:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
-  email:     varchar('email', { length: 255 }).notNull(),
-  role:      varchar('role', { length: 20 }).notNull().default('member'),
+  companyId: integer('company_id').notNull().unique(),
+  name:      varchar('name', { length: 255 }).notNull(),
   active:    boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-const magicLinkTokens = pgTable('magic_link_tokens', {
+const users = pgTable('users', {
+  id:            uuid('id').defaultRandom().primaryKey(),
+  email:         varchar('email', { length: 255 }).notNull().unique(),
+  passwordHash:  varchar('password_hash', { length: 255 }).notNull(),
+  mustChangePwd: boolean('must_change_pwd').notNull().default(false),
+  active:        boolean('active').notNull().default(true),
+  createdAt:     timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt:     timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const userCompany = pgTable('user_company', {
   id:        uuid('id').defaultRandom().primaryKey(),
-  tenantId:  uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
-  email:     varchar('email', { length: 255 }).notNull(),
-  tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  usedAt:    timestamp('used_at', { withTimezone: true }),
+  userId:    uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  companyId: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  role:      varchar('role', { length: 20 }).notNull().default('member'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -280,8 +287,9 @@ module.exports = {
   quickReplies,
   affiliates,
   affiliateReferrals,
-  tenantUsers,
-  magicLinkTokens,
+  companies,
+  users,
+  userCompany,
   sendStatusEnum,
   contractStatusEnum,
   paymentTypeEnum,

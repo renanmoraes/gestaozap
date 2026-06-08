@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import {
   Smartphone, Users, FileText, Send, Clock, BarChart2, Database,
@@ -6,56 +6,69 @@ import {
   ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud,
 } from 'lucide-react';
 
-// Context & componentes
 import { TenantProvider, useTenant } from './context/TenantContext';
 import WaGate from './components/WaGate';
 
-// Páginas tenant
-import Session    from './pages/Session';
-import Contacts   from './pages/Contacts';
-import Campaigns  from './pages/Campaigns';
-import SendPage   from './pages/Send';
-import History    from './pages/History';
-import Queue      from './pages/Queue';
-import Backup     from './pages/Backup';
-import Billing    from './pages/Billing';
-import Login      from './pages/Login';
-import Chat         from './pages/Chat';
+import Session from './pages/Session';
+import Contacts from './pages/Contacts';
+import Campaigns from './pages/Campaigns';
+import SendPage from './pages/Send';
+import History from './pages/History';
+import Queue from './pages/Queue';
+import Backup from './pages/Backup';
+import Billing from './pages/Billing';
+import Login from './pages/Login';
+import Chat from './pages/Chat';
 import QuickReplies from './pages/QuickReplies';
+import Landing from './pages/Landing/Landing';
 
-// Páginas admin
-import AdminLogin      from './pages/admin/AdminLogin';
-import AdminTenants    from './pages/admin/AdminTenants';
-import AdminConfig     from './pages/admin/AdminConfig';
-import AdminAffiliates    from './pages/admin/AdminAffiliates';
-import AdminTenantDetail  from './pages/admin/AdminTenantDetail';
-import AdminStorage       from './pages/admin/AdminStorage';
+import AdminLogin from './pages/admin/AdminLogin';
+import AdminTenants from './pages/admin/AdminTenants';
+import AdminConfig from './pages/admin/AdminConfig';
+import AdminAffiliates from './pages/admin/AdminAffiliates';
+import AdminTenantDetail from './pages/admin/AdminTenantDetail';
+import AdminStorage from './pages/admin/AdminStorage';
 
-// Página pública de registro via afiliado
 import Register from './pages/Register';
 
 /* ─── Detecção de contexto ────────────────────────────────── */
 
-function isAdminSubdomain() {
+function isLocalHost() {
   const h = window.location.hostname;
-  // Em dev: usar ?admin=1 na URL para abrir o painel admin
-  if (h === 'localhost' || h === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(h)) {
-    return new URLSearchParams(window.location.search).get('admin') === '1';
+  return h === 'localhost' || h === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(h);
+}
+
+function isAdminContext() {
+  if (isLocalHost()) {
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.get('admin') === '1') return true;
+    return window.location.pathname.startsWith('/admin');
   }
-  // Em produção: detecta admin.gestaozap.digital
-  return h.split('.')[0] === 'admin';
+  return window.location.hostname.split('.')[0] === 'admin';
+}
+
+function isTenantSubdomain() {
+  if (isLocalHost()) {
+    return window.location.pathname.startsWith('/app');
+  }
+  const slug = window.location.hostname.split('.')[0];
+  return slug !== 'admin' && slug !== 'www' && window.location.hostname.split('.').length >= 3;
+}
+
+function isMarketingSite() {
+  return !isAdminContext() && !isTenantSubdomain();
 }
 
 /* ─── App Admin ───────────────────────────────────────────── */
 
 const ADMIN_NAV = [
-  { to: '/tenants',    label: 'Clientes',          icon: Building2 },
-  { to: '/affiliates', label: 'Afiliados',         icon: UserCheck },
-  { to: '/storage',    label: 'Armazenamento',     icon: Cloud },
-  { to: '/config',     label: 'Configurações',     icon: Settings },
+  { to: '/tenants', label: 'Clientes', icon: Building2 },
+  { to: '/affiliates', label: 'Afiliados', icon: UserCheck },
+  { to: '/storage', label: 'Armazenamento', icon: Cloud },
+  { to: '/config', label: 'Configurações', icon: Settings },
 ];
 
-function AdminApp() {
+function AdminApp({ basePath = '' }) {
   const [token, setToken] = useState(() => localStorage.getItem('gestaozap_admin_token'));
 
   const logout = () => {
@@ -65,9 +78,10 @@ function AdminApp() {
 
   if (!token) return <AdminLogin onLogin={setToken} />;
 
+  const prefix = basePath.replace(/\/$/, '');
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar admin */}
       <aside className="w-56 bg-sidebar flex flex-col shrink-0">
         <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800">
           <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
@@ -83,7 +97,7 @@ function AdminApp() {
           {ADMIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
-              to={to}
+              to={`${prefix}${to}`}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                   isActive ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -110,12 +124,12 @@ function AdminApp() {
       <main className="flex-1 overflow-auto">
         <div className="p-6">
           <Routes>
-            <Route path="/tenants"        element={<AdminTenants />} />
-            <Route path="/tenants/:id"    element={<AdminTenantDetail />} />
-            <Route path="/affiliates"     element={<AdminAffiliates />} />
-            <Route path="/storage"        element={<AdminStorage />} />
-            <Route path="/config"         element={<AdminConfig />} />
-            <Route path="*"               element={<Navigate to="/tenants" replace />} />
+            <Route path={`${prefix}/tenants`} element={<AdminTenants />} />
+            <Route path={`${prefix}/tenants/:id`} element={<AdminTenantDetail />} />
+            <Route path={`${prefix}/affiliates`} element={<AdminAffiliates />} />
+            <Route path={`${prefix}/storage`} element={<AdminStorage />} />
+            <Route path={`${prefix}/config`} element={<AdminConfig />} />
+            <Route path="*" element={<Navigate to={`${prefix}/tenants`} replace />} />
           </Routes>
         </div>
       </main>
@@ -126,24 +140,26 @@ function AdminApp() {
 /* ─── App Tenant ──────────────────────────────────────────── */
 
 const TENANT_NAV = [
-  { to: '/',               label: 'WhatsApp',         icon: Smartphone, end: true },
-  { to: '/chat',           label: 'Conversas',        icon: MessageCircle },
-  { to: '/contacts',       label: 'Contatos',         icon: Users },
-  { to: '/quick-replies',  label: 'Mensagens rápidas', icon: Zap },
-  { to: '/campaigns',      label: 'Templates',        icon: FileText },
-  { to: '/send',           label: 'Disparo',          icon: Send },
-  { to: '/queue',          label: 'Fila',             icon: Clock },
-  { to: '/history',        label: 'Histórico',        icon: BarChart2 },
-  { to: '/backup',         label: 'Backup',           icon: Database },
-  { to: '/billing',        label: 'Financeiro',       icon: CreditCard },
+  { to: '/', label: 'WhatsApp', icon: Smartphone, end: true },
+  { to: '/chat', label: 'Conversas', icon: MessageCircle },
+  { to: '/contacts', label: 'Contatos', icon: Users },
+  { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
+  { to: '/campaigns', label: 'Templates', icon: FileText },
+  { to: '/send', label: 'Disparo', icon: Send },
+  { to: '/queue', label: 'Fila', icon: Clock },
+  { to: '/history', label: 'Histórico', icon: BarChart2 },
+  { to: '/backup', label: 'Backup', icon: Database },
+  { to: '/billing', label: 'Financeiro', icon: CreditCard },
 ];
 
-function TenantLayout() {
+function TenantLayout({ basePath = '' }) {
   const { isAuthenticated, isLoading, tenant, waStatus, logout } = useTenant();
   const [open, setOpen] = useState(true);
+  const prefix = basePath.replace(/\/$/, '');
 
-  // Página pública de registro via link de afiliado — sem auth
-  if (window.location.pathname === '/registrar') return <Register />;
+  if (window.location.pathname === `${prefix}/registrar` || window.location.pathname === '/registrar') {
+    return <Register />;
+  }
 
   if (isLoading) {
     return (
@@ -158,7 +174,6 @@ function TenantLayout() {
   return (
     <div className="min-h-screen bg-slate-50 flex">
       <aside className={`${open ? 'w-56' : 'w-16'} bg-sidebar flex flex-col shrink-0 transition-all duration-200`}>
-        {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800">
           <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shrink-0">
             <Zap className="w-4 h-4 text-white" />
@@ -176,12 +191,11 @@ function TenantLayout() {
           )}
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-2 py-4 space-y-0.5">
           {TENANT_NAV.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
-              to={to}
+              to={`${prefix}${to}`}
               end={end}
               title={!open ? label : undefined}
               className={({ isActive }) =>
@@ -196,7 +210,6 @@ function TenantLayout() {
           ))}
         </nav>
 
-        {/* Footer */}
         <div className="px-2 py-4 border-t border-slate-800 space-y-0.5">
           <button
             onClick={() => setOpen((o) => !o)}
@@ -219,34 +232,62 @@ function TenantLayout() {
 
       <main className="flex-1 overflow-auto flex flex-col min-h-screen">
         <Routes>
-          <Route path="/"               element={<Session />} />
-          <Route path="/chat"           element={<WaGate><Chat /></WaGate>} />
-          <Route path="/chat/:chatId"   element={<WaGate><Chat /></WaGate>} />
-          <Route path="/contacts"       element={<Contacts />} />
-          <Route path="/quick-replies"  element={<QuickReplies />} />
-          <Route path="/campaigns"      element={<Campaigns />} />
-          <Route path="/send"           element={<WaGate><SendPage /></WaGate>} />
-          <Route path="/queue"          element={<Queue />} />
-          <Route path="/history"        element={<History />} />
-          <Route path="/backup"         element={<Backup />} />
-          <Route path="/billing"        element={<Billing />} />
-          <Route path="*"               element={<Navigate to="/" replace />} />
+          <Route path={`${prefix}/`} element={<Session />} />
+          <Route path={`${prefix}/chat`} element={<WaGate><Chat /></WaGate>} />
+          <Route path={`${prefix}/chat/:chatId`} element={<WaGate><Chat /></WaGate>} />
+          <Route path={`${prefix}/contacts`} element={<Contacts />} />
+          <Route path={`${prefix}/quick-replies`} element={<QuickReplies />} />
+          <Route path={`${prefix}/campaigns`} element={<Campaigns />} />
+          <Route path={`${prefix}/send`} element={<WaGate><SendPage /></WaGate>} />
+          <Route path={`${prefix}/queue`} element={<Queue />} />
+          <Route path={`${prefix}/history`} element={<History />} />
+          <Route path={`${prefix}/backup`} element={<Backup />} />
+          <Route path={`${prefix}/billing`} element={<Billing />} />
+          <Route path="*" element={<Navigate to={`${prefix}/`} replace />} />
         </Routes>
       </main>
     </div>
   );
 }
 
+function TenantApp({ basePath = '' }) {
+  return (
+    <TenantProvider>
+      <TenantLayout basePath={basePath} />
+    </TenantProvider>
+  );
+}
+
+/* ─── Site marketing (domínio raiz) ───────────────────────── */
+
+function MarketingSite() {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/admin/*" element={<AdminApp basePath="/admin" />} />
+      <Route path="/registrar" element={<Register />} />
+      <Route path="/app/*" element={<TenantApp basePath="/app" />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
 /* ─── Root ────────────────────────────────────────────────── */
 
 export default function App() {
-  if (isAdminSubdomain()) {
-    return <AdminApp />;
+  if (isAdminContext()) {
+    const basePath = isLocalHost() && window.location.pathname.startsWith('/admin') ? '/admin' : '';
+    return <AdminApp basePath={basePath} />;
   }
 
-  return (
-    <TenantProvider>
-      <TenantLayout />
-    </TenantProvider>
-  );
+  if (isTenantSubdomain()) {
+    const basePath = isLocalHost() ? '/app' : '';
+    return <TenantApp basePath={basePath} />;
+  }
+
+  if (isMarketingSite()) {
+    return <MarketingSite />;
+  }
+
+  return <MarketingSite />;
 }

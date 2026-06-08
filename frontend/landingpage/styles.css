@@ -1,0 +1,8 @@
+/* GestãoZap Design System — global entry point.
+   Consumers link THIS file. It is import-only; all rules live in the
+   token files it reaches. */
+
+@import url("tokens/fonts.css");
+@import url("tokens/colors.css");
+@import url("tokens/typography.css");
+@import url("tokens/spacing.css");

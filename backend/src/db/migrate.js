@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Pool } = require('pg');
-const { seedPlatformConfig } = require('./seeds');
+const { seedPlatformConfig, seedAdminCompanyAndUser } = require('./seeds');
 
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000001';
 
@@ -288,30 +288,38 @@ async function runMigrations(pool) {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_system_events_tenant_created ON system_events(tenant_id, created_at DESC);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_system_events_unresolved ON system_events(tenant_id, severity) WHERE resolved = false;`);
 
-    // ─── Tenant Users & Magic Link Authentication ───
+    // ─── Companies & Users Authentication ───
     await client.query(`
-      CREATE TABLE IF NOT EXISTS tenant_users (
+      CREATE TABLE IF NOT EXISTS companies (
         id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-        email         VARCHAR(255) NOT NULL,
-        role          VARCHAR(20) NOT NULL DEFAULT 'member',
+        company_id    INTEGER NOT NULL UNIQUE,
+        name          VARCHAR(255) NOT NULL,
         active        BOOLEAN NOT NULL DEFAULT true,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (tenant_id, email)
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS magic_link_tokens (
-        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-        email         VARCHAR(255) NOT NULL,
-        token_hash    VARCHAR(64) NOT NULL UNIQUE,
-        expires_at    TIMESTAMPTZ NOT NULL,
-        used_at       TIMESTAMPTZ,
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (tenant_id, email, token_hash)
+      CREATE TABLE IF NOT EXISTS users (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email           VARCHAR(255) NOT NULL UNIQUE,
+        password_hash   VARCHAR(255) NOT NULL,
+        must_change_pwd BOOLEAN NOT NULL DEFAULT false,
+        active          BOOLEAN NOT NULL DEFAULT true,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_company (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        role        VARCHAR(20) NOT NULL DEFAULT 'member',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (user_id, company_id)
       );
     `);
 
@@ -459,6 +467,7 @@ async function main() {
     await runMigrations(pool);
     await ensureDefaultTenant(pool);
     await seedPlatformConfig(pool);
+    await seedAdminCompanyAndUser(pool);
     console.log('[db] setup completo');
   } finally {
     await pool.end();

@@ -1,3 +1,7 @@
+const bcrypt = require('bcryptjs');
+
+const ADMIN_PASSWORD = 'P@ssw0rd!2024Gestaozap#Secure';
+
 const DEFAULT_CONFIGS = [
   { key: 'batch_size', value: '30', description: 'Mensagens por lote antes da pausa anti-ban' },
   { key: 'batch_pause_ms', value: '600000', description: 'Duração da pausa entre lotes (ms) — padrão 10 min' },
@@ -49,4 +53,57 @@ async function seedPlatformConfig(pool) {
   }
 }
 
-module.exports = { seedPlatformConfig };
+async function seedAdminCompanyAndUser(pool) {
+  const client = await pool.connect();
+  try {
+    // Criar empresa admin (ID 0)
+    const companyResult = await client.query(`
+      INSERT INTO companies (company_id, name, active)
+      VALUES (0, 'GestãoZap - Administração', true)
+      ON CONFLICT (company_id) DO NOTHING
+      RETURNING id
+    `);
+
+    let companyId = null;
+    if (companyResult.rows.length > 0) {
+      companyId = companyResult.rows[0].id;
+      console.log('[db] empresa admin criada: ID 0');
+    } else {
+      // Se já existe, pega o ID
+      const existingCompany = await client.query(`
+        SELECT id FROM companies WHERE company_id = 0
+      `);
+      companyId = existingCompany.rows[0]?.id;
+    }
+
+    // Hash da senha admin
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+
+    // Criar usuário admin
+    const userResult = await client.query(`
+      INSERT INTO users (email, password_hash, must_change_pwd, active)
+      VALUES ('admin@gestaozap.digital', $1, false, true)
+      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+      RETURNING id
+    `, [passwordHash]);
+
+    const userId = userResult.rows[0].id;
+    console.log('[db] usuário admin criado: admin@gestaozap.digital');
+
+    // Vincular usuário à empresa
+    if (companyId) {
+      await client.query(`
+        INSERT INTO user_company (user_id, company_id, role)
+        VALUES ($1, $2, 'admin')
+        ON CONFLICT (user_id, company_id) DO NOTHING
+      `, [userId, companyId]);
+      console.log('[db] usuário admin vinculado à empresa');
+    }
+  } catch (err) {
+    console.error('[db] erro ao seedar admin:', err.message);
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { seedPlatformConfig, seedAdminCompanyAndUser };

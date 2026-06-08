@@ -1,0 +1,5 @@
+/* GestãoZap — Webfonts
+   Brand family is Inter (production loads it from Google Fonts).
+   Consumers linking styles.css get the @font-face rules below. */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');

@@ -75,6 +75,9 @@ app.use('/api/admin', requireAdmin, adminRoutes);
 // Rotas de auth (públicas por design — é onde o token é criado)
 app.use('/api/auth', require('./routes/auth.routes'));
 
+// Novo sistema de autenticação (email/senha)
+app.use('/api/auth-new', require('./routes/auth-new.routes'));
+
 // Rotas de negócio: tenantResolver resolve o tenant + authGuard verifica token (quando AUTH_REQUIRED)
 app.use('/api/session', tenantResolver, authGuard, require('./routes/session.routes'));
 app.use('/api/contacts', tenantResolver, authGuard, require('./routes/contacts.routes'));
