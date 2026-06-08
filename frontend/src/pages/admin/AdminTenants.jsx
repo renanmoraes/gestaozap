@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, RefreshCw, CheckCircle2, XCircle, Wifi, WifiOff, Edit2, Trash2, AlertCircle,
-  Eye, ChevronRight,
+  Plus, RefreshCw, CheckCircle2, XCircle, Wifi, AlertCircle, ChevronRight, Mail,
 } from 'lucide-react';
 import api from '../../api';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
@@ -10,7 +9,7 @@ import { formatPhone, maskPhoneInput } from '../../utils/phone';
 const PLANS = ['starter', 'pro', 'business'];
 const PLAN_LABELS = { starter: 'Starter', pro: 'Pro', business: 'Business' };
 
-function TenantRow({ tenant, onRefresh }) {
+function TenantRow({ tenant }) {
   const navigate = useNavigate();
 
   const waColor = tenant.wa_status === 'connected'
@@ -25,6 +24,9 @@ function TenantRow({ tenant, onRefresh }) {
 
   return (
     <tr className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={goDetails}>
+      <td className="px-4 py-3 font-mono text-sm text-slate-700">
+        {tenant.company_id ?? '—'}
+      </td>
       <td className="px-4 py-3">
         <div>
           <div className="text-sm font-medium text-slate-900 hover:text-brand-600">{tenant.name}</div>
@@ -41,7 +43,7 @@ function TenantRow({ tenant, onRefresh }) {
       </td>
       <td className="px-4 py-3 text-xs">
         {isLifetime ? (
-          <span className="text-emerald-700 font-semibold">♾️ Vitalício</span>
+          <span className="text-emerald-700 font-semibold">Vitalício</span>
         ) : tenant.contract_expires_at ? (
           <div>
             <div className="text-slate-700">
@@ -79,12 +81,16 @@ function TenantRow({ tenant, onRefresh }) {
 }
 
 export default function AdminTenants() {
-  const [tenants, setTenants]   = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [tenants, setTenants] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm]         = useState({ slug: '', name: '', registeredPhone: '', planSlug: 'starter', expiryDays: 30, lifetime: false });
+  const [form, setForm] = useState({
+    slug: '', name: '', registeredPhone: '', contactEmail: '',
+    planSlug: 'starter', expiryDays: 30, lifetime: false,
+  });
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -97,11 +103,17 @@ export default function AdminTenants() {
     e.preventDefault();
     setCreating(true);
     setFormError(null);
+    setSuccessMsg(null);
     try {
       const payload = { ...form, expiryDays: form.lifetime ? 0 : form.expiryDays };
-      await api.post('/api/admin/tenants', payload);
+      const { data } = await api.post('/api/admin/tenants', payload);
       setShowForm(false);
-      setForm({ slug: '', name: '', registeredPhone: '', planSlug: 'starter', expiryDays: 30, lifetime: false });
+      setForm({
+        slug: '', name: '', registeredPhone: '', contactEmail: '',
+        planSlug: 'starter', expiryDays: 30, lifetime: false,
+      });
+      const emailNote = data.emailSent ? 'Email de acesso enviado.' : 'Cliente criado (email não enviado — verifique Resend).';
+      setSuccessMsg(`Cliente #${data.companyId} criado. ${emailNote}`);
       load();
     } catch (err) {
       setFormError(err.response?.data?.error || 'Erro ao criar cliente');
@@ -127,7 +139,12 @@ export default function AdminTenants() {
         </div>
       </div>
 
-      {/* Formulário de criação */}
+      {successMsg && (
+        <div className="flex gap-2 items-start p-3 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+          <Mail className="w-4 h-4 shrink-0 mt-0.5" />{successMsg}
+        </div>
+      )}
+
       {showForm && (
         <div className="card p-5">
           <h3 className="text-sm font-semibold text-slate-900 mb-4">Novo cliente</h3>
@@ -147,11 +164,15 @@ export default function AdminTenants() {
                 onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/\s/g, '-') })} required />
             </div>
             <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Email do responsável</label>
+              <input type="email" className="input" placeholder="contato@empresa.com" value={form.contactEmail}
+                onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} required />
+            </div>
+            <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Número WhatsApp</label>
               <input className="input font-mono" placeholder="(11) 98765-4321"
                 value={formatPhone(form.registeredPhone)}
                 onChange={(e) => setForm({ ...form, registeredPhone: maskPhoneInput(e.target.value) })} required />
-              <p className="text-xs text-slate-400 mt-1">Com DDD. Brasileiros: adicione 55 no início (ou comece pelo DDD).</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Plano</label>
@@ -166,7 +187,7 @@ export default function AdminTenants() {
                   <input type="checkbox" checked={form.lifetime}
                     onChange={(e) => setForm({ ...form, lifetime: e.target.checked })}
                     className="w-4 h-4 rounded border-slate-300 text-brand-600" />
-                  <span className="text-sm font-medium text-slate-800">Vitalício ♾️ (sem vencimento)</span>
+                  <span className="text-sm font-medium text-slate-800">Vitalício (sem vencimento)</span>
                 </label>
                 {!form.lifetime && (
                   <input type="number" className="input" min="1" value={form.expiryDays}
@@ -175,10 +196,10 @@ export default function AdminTenants() {
                 )}
               </div>
             </div>
-            <div className="flex items-end gap-2">
+            <div className="col-span-2 flex items-end gap-2">
               <button type="submit" disabled={creating} className="btn-primary flex-1 flex items-center justify-center gap-1.5">
                 {creating ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Plus className="w-4 h-4" />}
-                Criar
+                Criar e enviar acesso
               </button>
               <button type="button" onClick={() => setShowForm(false)} className="btn-secondary flex-1">Cancelar</button>
             </div>
@@ -186,7 +207,6 @@ export default function AdminTenants() {
         </div>
       )}
 
-      {/* Tabela */}
       <div className="card overflow-hidden">
         {loading ? (
           <div className="py-12 text-center">
@@ -197,15 +217,15 @@ export default function AdminTenants() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr>
-                  {['Cliente', 'Número', 'Plano', 'Vencimento', 'WA', 'Status', ''].map((h) => (
+                  {['ID', 'Cliente', 'Número', 'Plano', 'Vencimento', 'WA', 'Status', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {tenants.map((t) => <TenantRow key={t.id} tenant={t} onRefresh={load} />)}
+                {tenants.map((t) => <TenantRow key={t.id} tenant={t} />)}
                 {!tenants.length && (
-                  <tr><td colSpan={7} className="text-center py-12 text-sm text-slate-400">Nenhum cliente cadastrado.</td></tr>
+                  <tr><td colSpan={8} className="text-center py-12 text-sm text-slate-400">Nenhum cliente cadastrado.</td></tr>
                 )}
               </tbody>
             </table>

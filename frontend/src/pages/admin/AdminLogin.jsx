@@ -3,17 +3,22 @@ import { ShieldCheck, AlertCircle, LogIn } from 'lucide-react';
 import api from '../../api';
 
 export default function AdminLogin({ onLogin }) {
-  const [email, setEmail]   = useState('');
-  const [secret, setSecret] = useState('');
+  const [form, setForm] = useState({ companyId: '', email: '', password: '' });
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState(null);
+  const [error, setError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.post('/api/admin/login', { email, secret });
+      const { data } = await api.post('/api/auth/login', {
+        companyId: form.companyId.trim(),
+        email: form.email,
+        password: form.password,
+      }, {
+        headers: { 'X-Tenant-Slug': 'admin' },
+      });
       localStorage.setItem('gestaozap_admin_token', data.token);
       onLogin(data.token);
     } catch (err) {
@@ -46,28 +51,43 @@ export default function AdminLogin({ onLogin }) {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">E-mail</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">Identificador da empresa</label>
               <input
-                type="email"
-                className="input"
-                placeholder="admin@gestaozap.digital"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                className="input font-mono"
+                placeholder="Identificador"
+                value={form.companyId}
+                onChange={(e) => setForm({ ...form, companyId: e.target.value })}
                 required
                 autoFocus
+                autoComplete="off"
+                spellCheck={false}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">Senha de acesso</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">Email</label>
+              <input
+                type="email"
+                className="input"
+                placeholder="seu@email.com"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                required
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">Senha</label>
               <input
                 type="password"
                 className="input"
                 placeholder="••••••••"
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
                 required
+                autoComplete="new-password"
               />
             </div>
             <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2 py-3">

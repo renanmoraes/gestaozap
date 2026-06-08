@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import api from '../api';
+import ChangePassword from '../pages/ChangePassword';
 
 const TenantContext = createContext(null);
 
@@ -13,7 +14,7 @@ export function useTenant() {
 function getSlugFromHostname() {
   const hostname = window.location.hostname;
   if (hostname === 'localhost' || hostname === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
-    return null; // dev mode — backend usa DEFAULT_TENANT_ID
+    return null;
   }
   const parts = hostname.split('.');
   return parts.length >= 3 ? parts[0] : null;
@@ -31,38 +32,40 @@ function getSocket(tenantId) {
 }
 
 export function TenantProvider({ children }) {
-  const [tenant, setTenant]   = useState(null);
+  const [tenant, setTenant] = useState(null);
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('gestaozap_token'));
+  const [mustChangePwd, setMustChangePwd] = useState(false);
   const [waStatus, setWaStatus] = useState('disconnected');
   const [wrongPhone, setWrongPhone] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Verifica sessão ao montar
-  useEffect(() => {
+  const loadSession = useCallback(() => {
     const token = localStorage.getItem('gestaozap_token');
-    if (!token) { setIsLoading(false); return; }
+    if (!token) { setIsLoading(false); return Promise.resolve(); }
 
-    api.get('/api/auth/me')
+    return api.get('/api/auth/me')
       .then((r) => {
         setTenant(r.data);
         setAuthToken(token);
-        localStorage.setItem('gestaozap_tenant_id', r.data.tenantId);
+        setMustChangePwd(Boolean(r.data.user?.mustChangePwd));
+        if (r.data.tenantId) localStorage.setItem('gestaozap_tenant_id', r.data.tenantId);
       })
       .catch(() => {
         localStorage.removeItem('gestaozap_token');
         localStorage.removeItem('gestaozap_tenant_id');
         setAuthToken(null);
+        setTenant(null);
       })
       .finally(() => setIsLoading(false));
   }, []);
 
-  // Busca status WA ao autenticar
+  useEffect(() => { loadSession(); }, [loadSession]);
+
   useEffect(() => {
-    if (!tenant) return;
+    if (!tenant?.tenantId) return;
     api.get('/api/session').then((r) => setWaStatus(r.data.status)).catch(() => {});
   }, [tenant]);
 
-  // Socket.IO — eventos de sessão WA
   useEffect(() => {
     const tenantId = localStorage.getItem('gestaozap_tenant_id') || '';
     const socket = getSocket(tenantId);
@@ -88,6 +91,7 @@ export function TenantProvider({ children }) {
     if (tenantData?.tenantId) localStorage.setItem('gestaozap_tenant_id', tenantData.tenantId);
     setAuthToken(token);
     setTenant(tenantData);
+    setMustChangePwd(Boolean(tenantData?.user?.mustChangePwd));
   }, []);
 
   const logout = useCallback(() => {
@@ -96,6 +100,7 @@ export function TenantProvider({ children }) {
     localStorage.removeItem('gestaozap_tenant_id');
     setAuthToken(null);
     setTenant(null);
+    setMustChangePwd(false);
     setWaStatus('disconnected');
   }, []);
 
@@ -104,9 +109,18 @@ export function TenantProvider({ children }) {
     setTenant((t) => t ? { ...t, termsAccepted: true } : t);
   }, []);
 
+  const onPasswordChanged = useCallback(async () => {
+    setMustChangePwd(false);
+    await loadSession();
+  }, [loadSession]);
+
+  if (mustChangePwd && authToken) {
+    return <ChangePassword onSuccess={onPasswordChanged} />;
+  }
+
   return (
     <TenantContext.Provider value={{
-      tenant, authToken, waStatus, wrongPhone, isLoading,
+      tenant, authToken, waStatus, wrongPhone, isLoading, mustChangePwd,
       isAuthenticated: Boolean(authToken && tenant),
       login, logout, acceptTerms,
       slug: getSlugFromHostname(),

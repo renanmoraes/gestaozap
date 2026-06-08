@@ -10,7 +10,8 @@ const api = axios.create({ baseURL });
 api.interceptors.request.use((config) => {
   const isAdminRequest = (config.url || '').includes('/api/admin/');
   const isAdminContext = window.location.hostname.split('.')[0] === 'admin'
-    || new URLSearchParams(window.location.search).get('admin') === '1';
+    || new URLSearchParams(window.location.search).get('admin') === '1'
+    || window.location.pathname.startsWith('/admin');
 
   const tokenKey = (isAdminRequest || isAdminContext)
     ? 'gestaozap_admin_token'
@@ -20,6 +21,11 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  if (isAdminRequest || isAdminContext) {
+    config.headers['X-Tenant-Slug'] = 'admin';
+  }
+
   return config;
 });
 
@@ -31,7 +37,9 @@ api.interceptors.response.use(
     const code = error.response?.data?.code;
 
     if (status === 401) {
-      const isAdminError = code === 'ADMIN_UNAUTHORIZED' || code === 'ADMIN_SESSION_EXPIRED';
+      const isAdminError = code === 'ADMIN_UNAUTHORIZED'
+        || code === 'ADMIN_SESSION_EXPIRED'
+        || code === 'ADMIN_FORBIDDEN';
 
       if (isAdminError) {
         localStorage.removeItem('gestaozap_admin_token');

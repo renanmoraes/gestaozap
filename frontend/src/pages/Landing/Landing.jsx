@@ -17,7 +17,19 @@ export default function Landing() {
   }, []);
 
   useEffect(() => {
-    const cleanup = initLandingEffects(rootRef.current);
+    const root = rootRef.current;
+    if (!root) return undefined;
+
+    // Em produção no domínio raiz, aponta "Entrar no painel" para admin.gestaozap.digital
+    const h = window.location.hostname;
+    const isRootProd = h === 'gestaozap.digital' || h === 'www.gestaozap.digital';
+    if (isRootProd) {
+      root.querySelectorAll('a[href="/admin"]').forEach((a) => {
+        a.setAttribute('href', 'https://admin.gestaozap.digital');
+      });
+    }
+
+    const cleanup = initLandingEffects(root);
     return cleanup;
   }, []);
 
