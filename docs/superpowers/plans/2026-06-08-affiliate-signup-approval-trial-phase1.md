@@ -634,8 +634,8 @@ Manter o restante da função (busca de `user`, `userCompany`, `verifyPassword`,
 Run:
 ```bash
 docker compose restart backend && sleep 4
-# aprova manualmente o tenant de teste p/ poder logar (a aprovação real vem na Task 9; aqui só validamos login)
-# login do cliente SEM companyId, identificando o tenant pelo slug:
+# login do cliente SEM companyId — não depende de aprovação (login é desacoplado do gate):
+# identifica o tenant pelo slug via header X-Tenant-Slug:
 SLUG=$(docker compose exec -T postgres psql -tA -U wa_invites -d wa_invites -c "SELECT slug FROM tenants WHERE name='Farmácia Teste' LIMIT 1;")
 curl -s -X POST localhost:3001/api/auth/login -H 'Content-Type: application/json' -H "X-Tenant-Slug: $SLUG" \
   -d '{"email":"teste1@ex.com","password":"senha1234"}' | jq '{ok:.token!=null, error}'
