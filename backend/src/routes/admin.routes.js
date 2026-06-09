@@ -12,19 +12,25 @@ const {
 } = require('../db/schema');
 const { refreshConfig } = require('../config/platform');
 const { registerProcessorForTenant } = require('../services/queue.service');
+const { getIo } = require('../config/registry');
+const { sendSignupApproved, sendSignupRejected } = require('../services/signup-email.service');
 
 /* ─── Tenants (Clientes) ─────────────────────────────────── */
 
 router.get('/tenants', async (req, res) => {
   try {
     const db = getDb();
+    const { status } = req.query;
+    const whereClause = status ? sql`WHERE t.approval_status = ${status}` : sql``;
     const rows = await db.execute(sql`
       SELECT
         t.id, t.slug, t.name, t.registered_phone, t.active,
+        t.approval_status, t.document, t.document_type, t.affiliate_code,
         t.terms_accepted_at, t.created_at, t.updated_at,
         ws.status AS wa_status,
         c.status AS contract_status,
         c.expires_at AS contract_expires_at,
+        c.is_trial AS contract_is_trial,
         p.name AS plan_name,
         co.company_id AS company_id
       FROM tenants t
@@ -32,11 +38,87 @@ router.get('/tenants', async (req, res) => {
       LEFT JOIN contracts c ON c.tenant_id = t.id AND c.status = 'active'
       LEFT JOIN plans p ON p.id = c.plan_id
       LEFT JOIN companies co ON co.tenant_id = t.id
+      ${whereClause}
       ORDER BY t.created_at DESC
     `);
     res.json(rows.rows);
   } catch (err) {
     console.error('admin get tenants:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ─── Aprovação de pré-cadastros (Fase 1) ───────────────── */
+
+// POST /api/admin/tenants/:id/approve  body: { slug?, trialDays? }
+router.post('/tenants/:id/approve', async (req, res) => {
+  try {
+    const db = getDb();
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, req.params.id));
+    if (!tenant) return res.status(404).json({ error: 'Tenant não encontrado' });
+    if (tenant.approvalStatus !== 'pending') return res.status(409).json({ error: 'Tenant não está pendente' });
+
+    const cfg = await db.execute(sql`SELECT value FROM platform_config WHERE key='trial_days' LIMIT 1`);
+    const trialDays = Number(req.body?.trialDays) || Number(cfg.rows?.[0]?.value) || 7;
+
+    const [plan] = await db.select().from(plans).where(eq(plans.active, true)).orderBy(plans.priceBrl).limit(1);
+    if (!plan) return res.status(400).json({ error: 'Nenhum plano ativo configurado' });
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+    const newSlug = (req.body?.slug || tenant.slug).toLowerCase();
+
+    await db.transaction(async (tx) => {
+      await tx.update(tenants).set({
+        approvalStatus: 'approved', active: true, slug: newSlug, updatedAt: now,
+      }).where(eq(tenants.id, tenant.id));
+      await tx.insert(contracts).values({
+        tenantId: tenant.id, planId: plan.id, status: 'active',
+        startedAt: now, expiresAt, isTrial: true,
+      });
+    });
+
+    const io = getIo();
+    if (io) registerProcessorForTenant(tenant.id, io);
+
+    const ownerEmail = await db.execute(sql`
+      SELECT u.email FROM users u
+      JOIN user_company uc ON uc.user_id = u.id
+      JOIN companies c ON c.id = uc.company_id
+      WHERE c.tenant_id = ${tenant.id} LIMIT 1`);
+    if (ownerEmail.rows?.[0]?.email) {
+      sendSignupApproved(ownerEmail.rows[0].email, tenant.name, newSlug, trialDays).catch(() => {});
+    }
+
+    res.json({ ok: true, slug: newSlug, trialDays, expiresAt });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Slug já em uso' });
+    console.error('[admin approve]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/tenants/:id/reject
+router.post('/tenants/:id/reject', async (req, res) => {
+  try {
+    const db = getDb();
+    const [tenant] = await db.update(tenants)
+      .set({ approvalStatus: 'rejected', active: false, updatedAt: new Date() })
+      .where(eq(tenants.id, req.params.id)).returning();
+    if (!tenant) return res.status(404).json({ error: 'Tenant não encontrado' });
+
+    const ownerEmail = await db.execute(sql`
+      SELECT u.email FROM users u
+      JOIN user_company uc ON uc.user_id = u.id
+      JOIN companies c ON c.id = uc.company_id
+      WHERE c.tenant_id = ${tenant.id} LIMIT 1`);
+    if (ownerEmail.rows?.[0]?.email) {
+      sendSignupRejected(ownerEmail.rows[0].email, tenant.name).catch(() => {});
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin reject]', err);
     res.status(500).json({ error: err.message });
   }
 });
