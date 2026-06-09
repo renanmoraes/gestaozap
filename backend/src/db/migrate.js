@@ -256,6 +256,26 @@ async function runMigrations(pool) {
     await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS affiliate_code VARCHAR(50);`);
     await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS affiliate_id UUID REFERENCES affiliates(id);`);
 
+    // ─── Pré-cadastro: aprovação + documento (Fase 1) ───
+    // Cria approval_status e aprova retroativamente os tenants pré-existentes
+    // (default 'pending' valeria só para novos cadastros). Idempotente: o backfill
+    // roda apenas quando a coluna é criada pela primeira vez.
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name='tenants' AND column_name='approval_status'
+        ) THEN
+          ALTER TABLE tenants ADD COLUMN approval_status VARCHAR(20) NOT NULL DEFAULT 'pending';
+          UPDATE tenants SET approval_status='approved';
+        END IF;
+      END $$;
+    `);
+    await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS document VARCHAR(20);`);
+    await client.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS document_type VARCHAR(4);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tenants_approval_status ON tenants(approval_status);`);
+    await client.query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS is_trial BOOLEAN NOT NULL DEFAULT false;`);
+
     // Indexes
     await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_tenant_phone ON contacts(tenant_id, phone);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_tenant_active ON contacts(tenant_id, active);`);

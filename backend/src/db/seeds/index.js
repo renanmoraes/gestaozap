@@ -14,6 +14,7 @@ const DEFAULT_CONFIGS = [
   { key: 'backup_retention', value: '7', description: 'Número de backups automáticos a manter' },
   { key: 'backup_auto_hour', value: '3', description: 'Hora do backup automático diário (0-23, horário SP)' },
   { key: 'terms_current_version', value: '2.0', description: 'Versão atual dos termos de uso' },
+  { key: 'trial_days', value: '7', description: 'Dias de trial grátis após aprovação do cadastro' },
 
   // Storage — fotos/áudios/anexos
   { key: 'storage_provider',  value: 'local', description: 'Provider de storage: "local" ou "r2" (Cloudflare R2)' },

@@ -27,6 +27,13 @@ const tenants = pgTable('tenants', {
   asaasCustomerId: varchar('asaas_customer_id', { length: 100 }),
   termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }),
   termsVersion: varchar('terms_version', { length: 20 }),
+  // Pré-cadastro: gate de aprovação + documento fiscal (Fase 1)
+  approvalStatus: varchar('approval_status', { length: 20 }).notNull().default('pending'),
+  document: varchar('document', { length: 20 }),
+  documentType: varchar('document_type', { length: 4 }),
+  // Colunas de afiliado já existentes no banco (migrate.js) — declaradas aqui p/ o drizzle
+  affiliateCode: varchar('affiliate_code', { length: 50 }),
+  affiliateId: uuid('affiliate_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -172,6 +179,7 @@ const contracts = pgTable('contracts', {
   status: contractStatusEnum('status').notNull().default('active'),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }), // NULL = vitalício (sem vencimento)
+  isTrial: boolean('is_trial').notNull().default(false),
   autoRenew: boolean('auto_renew').notNull().default(true),
   asaasSubscriptionId: varchar('asaas_subscription_id', { length: 100 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
