@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Edit2, Save, X, Wifi, WifiOff, AlertTriangle, CheckCircle2,
+  ArrowLeft, ArrowRight, Edit2, Save, X, Wifi, WifiOff, AlertTriangle, CheckCircle2,
   Smartphone, MessageSquare, Users, FileText, CreditCard, Calendar,
   Shield, ShieldOff, PowerOff, Plus, Tag, Clock, Hash, Building2, RefreshCw,
 } from 'lucide-react';
