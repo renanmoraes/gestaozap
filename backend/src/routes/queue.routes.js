@@ -45,6 +45,25 @@ function normalizeReturnValue(job) {
   return typeof rv === 'object' && rv !== null ? rv : null;
 }
 
+function jobSortPriority(job) {
+  if (job.state === 'active' && !job.paused) return 0;
+  if (job.state === 'active' && job.paused) return 1;
+  if (job.state === 'delayed') return 2;
+  if (job.state === 'waiting') return 3;
+  if (job.state === 'failed') return 4;
+  if (job.state === 'completed') return 5;
+  return 6;
+}
+
+function sortJobsList(jobs) {
+  return jobs.sort((a, b) => {
+    const pa = jobSortPriority(a);
+    const pb = jobSortPriority(b);
+    if (pa !== pb) return pa - pb;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+}
+
 router.get('/jobs', async (req, res) => {
   try {
     const db = getDb();
@@ -70,6 +89,9 @@ router.get('/jobs', async (req, res) => {
         const prog = typeof job.progress === 'function' ? job.progress() : 0;
         const result = normalizeReturnValue(job);
         const paused = state === 'active' ? await isPauseRequested(tenantId, job.id) : false;
+        const resumesAt = state === 'delayed' && job.opts?.delay
+          ? new Date((job.timestamp || Date.now()) + job.opts.delay).toISOString()
+          : null;
         return {
           id: String(job.id),
           state,
@@ -83,12 +105,13 @@ router.get('/jobs', async (req, res) => {
           processedOn: job.processedOn,
           finishedOn: job.finishedOn,
           failedReason: job.failedReason || null,
+          resumesAt,
           result,
         };
       }),
     );
 
-    out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    sortJobsList(out);
     res.json(out);
   } catch (err) {
     console.error('queue list:', err);

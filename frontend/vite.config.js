@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
       watch: { usePolling: true },
       proxy: {
         '/api': { target: proxyTarget, changeOrigin: true },
+        '/uploads': { target: proxyTarget, changeOrigin: true },
         '/socket.io': { target: proxyTarget, ws: true },
       },
     },

@@ -73,3 +73,14 @@ export const CHAT_UPLOAD_HINT =
 
 export const CAMPAIGN_IMAGE_HINT =
   'JPG, PNG, WebP ou GIF · até 16 MB · imagens menores enviam mais rápido no WhatsApp';
+
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+
+/** Resolve imagePath do template (URL R2, /uploads/... ou uploads/...) para src válido. */
+export function resolveCampaignImageUrl(imagePath) {
+  if (!imagePath) return null;
+  const raw = String(imagePath).trim();
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+  return API_BASE ? `${API_BASE}${normalized}` : normalized;
+}

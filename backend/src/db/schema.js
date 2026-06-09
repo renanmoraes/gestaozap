@@ -12,7 +12,7 @@ const {
   bigint,
 } = require('drizzle-orm/pg-core');
 
-const sendStatusEnum = pgEnum('send_status', ['pending', 'sent', 'failed']);
+const sendStatusEnum = pgEnum('send_status', ['pending', 'sent', 'failed', 'dlq', 'skipped']);
 const contractStatusEnum = pgEnum('contract_status', ['active', 'expired', 'cancelled', 'pending']);
 const paymentTypeEnum = pgEnum('payment_type', ['subscription', 'per_message', 'credit', 'refund']);
 const paymentStatusEnum = pgEnum('payment_status', ['pending', 'paid', 'failed', 'cancelled']);

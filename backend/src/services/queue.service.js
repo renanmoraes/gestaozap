@@ -44,11 +44,26 @@ function buildMessage(template, variables = {}, appendOptOut = false, optOutText
   return msg;
 }
 
-async function sleepWithCancel(ms, tenantId, jobId, dispatchId) {
+function formatSendError(cls, attempts) {
+  const reason = cls.reason || 'unknown';
+  const detail = cls.original ? String(cls.original).slice(0, 200) : '';
+  if (attempts != null && attempts > 0) {
+    return detail ? `attempt:${attempts}:${reason}:${detail}` : `attempt:${attempts}:${reason}`;
+  }
+  return detail ? `${reason}:${detail}` : reason;
+}
+
+function heartbeatJob(job, progressPct) {
+  if (!job || progressPct == null) return;
+  try { job.progress(progressPct); } catch (_) { /* lock refresh best-effort */ }
+}
+
+async function sleepWithCancel(ms, tenantId, jobId, dispatchId, job = null, progressPct = null) {
   const chunk = 2000;
   let elapsed = 0;
   while (elapsed < ms) {
     if (await isSendCancelled(tenantId, jobId, dispatchId)) return true;
+    heartbeatJob(job, progressPct);
     const step = Math.min(chunk, ms - elapsed);
     await new Promise((r) => setTimeout(r, step));
     elapsed += step;
@@ -64,6 +79,7 @@ async function waitWhilePaused(tenantId, jobId, dispatchId, io, ctx) {
   });
   while (await isPauseRequested(tenantId, jobId)) {
     if (await isSendCancelled(tenantId, jobId, dispatchId)) return true;
+    heartbeatJob(ctx.job, ctx.progressPct);
     await new Promise((r) => setTimeout(r, 2000));
   }
   if (await isSendCancelled(tenantId, jobId, dispatchId)) return true;
@@ -225,13 +241,17 @@ function buildProcessor(io) {
 
         for (let i = 0; i < batch.length; i++) {
         const contact = batch[i];
+        const progIdx = pass === 0 ? i + 1 : total + i + 1;
+        const progPct = Math.round((progIdx / batchTotal) * 100);
 
         // Cruzou o fim da janela no meio do envio: agenda o restante e encerra.
         if (pass === 0 && !ignoreHours && i > 0 && isOutsideSendWindow(hourStart, hourEnd)) {
           return rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCount, total, fromIndex: i });
         }
 
-        await waitWhilePaused(tenantId, jobId, dispatchId, io, { campaignId, sentCount, total, runId: sendJobId });
+        await waitWhilePaused(tenantId, jobId, dispatchId, io, {
+          campaignId, sentCount, total, runId: sendJobId, job, progressPct: progPct,
+        });
         if (await isSendCancelled(tenantId, jobId, dispatchId)) return finishCancelled();
 
         // QUALITY GATE: pausa se taxa de erro > 2% nos últimos N envios
@@ -258,13 +278,29 @@ function buildProcessor(io) {
           metrics.recordDlq(tenantId, 'invalid_phone');
           emitProgress(io, tenantId, {
             campaignId, jobId, phone: contact.phone, status: 'dlq', sentCount, total: batchTotal,
-            index: pass === 0 ? i + 1 : total + i + 1, reason: 'invalid_phone',
+            index: progIdx, reason: 'invalid_phone',
           }, { failedCount, runId: sendJobId });
-          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+          job.progress(progPct);
           continue;
         }
 
         const phone = validation.digits;
+
+        const [campaignSent] = await db.select({ id: sendLogs.id }).from(sendLogs)
+          .where(and(
+            eq(sendLogs.tenantId, tenantId),
+            eq(sendLogs.campaignId, campaignId),
+            eq(sendLogs.phone, phone),
+            eq(sendLogs.status, 'sent'),
+          )).limit(1);
+        if (campaignSent) {
+          emitProgress(io, tenantId, {
+            campaignId, jobId, phone, status: 'skipped', sentCount, total: batchTotal,
+            index: progIdx, reason: 'already_sent_campaign',
+          }, { failedCount, runId: sendJobId });
+          job.progress(progPct);
+          continue;
+        }
 
         // DEDUPE INSERT (mesma chave reservada → outro worker já está enviando)
         const inserted = await db.insert(sendLogs).values({
@@ -287,24 +323,23 @@ function buildProcessor(io) {
           log = existing;
         }
 
-        if (!log || log.status === 'sent' || log.status === 'dlq') {
-          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+        if (!log || log.status === 'sent' || log.status === 'dlq' || log.status === 'skipped') {
+          job.progress(progPct);
           continue;
         }
 
         // RATE LIMIT POR DESTINATÁRIO 24h (Redis SET NX EX)
         const acquired = await guard.tryReserveRecipient(tenantId, phone, 86400);
         if (!acquired) {
-          await db.update(sendLogs).set({ status: 'failed', error: 'rate_limit_24h', updatedAt: new Date() })
+          await db.update(sendLogs).set({ status: 'skipped', error: 'rate_limit_24h', updatedAt: new Date() })
             .where(eq(sendLogs.id, log.id));
-          failedCount++;
           metrics.recordDedupeHit(tenantId, 'recipient_24h');
           metrics.recordSendOutcome(tenantId, 'skipped');
           emitProgress(io, tenantId, {
             campaignId, jobId, phone, status: 'skipped', sentCount, total: batchTotal,
-            index: pass === 0 ? i + 1 : total + i + 1, reason: 'rate_limit_24h',
+            index: progIdx, reason: 'rate_limit_24h', error: 'rate_limit_24h',
           }, { failedCount, runId: sendJobId });
-          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+          job.progress(progPct);
           continue;
         }
 
@@ -319,9 +354,9 @@ function buildProcessor(io) {
             failedCount++;
             emitProgress(io, tenantId, {
               campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal,
-              index: pass === 0 ? i + 1 : total + i + 1, reason: 'not_on_whatsapp',
+              index: progIdx, reason: 'not_on_whatsapp',
             }, { failedCount, runId: sendJobId });
-            job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+            job.progress(progPct);
             continue;
           }
         }
@@ -353,8 +388,6 @@ function buildProcessor(io) {
           sentCount++;
           trackMessageUsage(db, tenantId, log.id).catch(() => {});
 
-          const progIdx = pass === 0 ? i + 1 : total + i + 1;
-          const progPct = Math.round((progIdx / batchTotal) * 100);
           job.progress(progPct);
           emitProgress(io, tenantId, {
             campaignId, jobId, phone, status: 'sent', sentCount, total: batchTotal, index: progIdx,
@@ -362,8 +395,8 @@ function buildProcessor(io) {
 
           if (shouldPauseBatch(sentCount)) {
             io.to(tenantId).emit('send:batch_pause', { campaignId, jobId, sentCount });
-            if (await sleepWithCancel(getBatchPauseMs(), tenantId, jobId, dispatchId)) return finishCancelled();
-          } else if (await sleepWithCancel(buildAntibanDelay(), tenantId, jobId, dispatchId)) {
+            if (await sleepWithCancel(getBatchPauseMs(), tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
+          } else if (await sleepWithCancel(buildAntibanDelay(), tenantId, jobId, dispatchId, job, progPct)) {
             return finishCancelled();
           }
         } catch (err) {
@@ -378,9 +411,10 @@ function buildProcessor(io) {
               incidents.record(tenantId, io, 'policy_violation', 'critical', { reason: cls.reason, original: cls.original });
             }
             // DLQ direto — sem retry
+            const dlqError = formatSendError(cls);
             await db.update(sendLogs).set({
               status: 'dlq',
-              error: `${cls.kind}:${cls.reason}`,
+              error: `${cls.kind}:${dlqError}`,
               updatedAt: new Date(),
             }).where(eq(sendLogs.id, log.id));
             // Libera o lock do destinatário (permite que outro flow tente depois)
@@ -388,34 +422,35 @@ function buildProcessor(io) {
             failedCount++;
             emitProgress(io, tenantId, {
               campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal,
-              index: pass === 0 ? i + 1 : total + i + 1, reason: cls.reason, error: cls.reason,
+              index: progIdx, reason: cls.reason, error: dlqError,
             }, { failedCount, runId: sendJobId });
 
             if (cls.kind === 'policy') {
               io.to(tenantId).emit('send:alert', { campaignId, jobId, message: `Aviso de política: ${cls.reason}` });
             }
-            job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+            job.progress(progPct);
             continue;
           }
 
           // Transient: backoff com jitter + retry no próximo loop (até 5 tentativas)
           const newAttempts = attempts + 1;
+          const formattedError = formatSendError(cls, newAttempts);
           if (newAttempts >= 5) {
-            await db.update(sendLogs).set({ status: 'dlq', error: `max_retries:${cls.reason}`, updatedAt: new Date() })
+            await db.update(sendLogs).set({ status: 'dlq', error: `max_retries:${formattedError}`, updatedAt: new Date() })
               .where(eq(sendLogs.id, log.id));
             await guard.releaseRecipientLock(tenantId, phone);
             failedCount++;
             emitProgress(io, tenantId, {
               campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal,
-              index: pass === 0 ? i + 1 : total + i + 1, reason: 'max_retries', error: 'max_retries',
+              index: progIdx, reason: 'max_retries', error: formattedError,
             }, { failedCount, runId: sendJobId });
-            job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+            job.progress(progPct);
             continue;
           }
 
           await db.update(sendLogs).set({
             status: 'failed',
-            error: `attempt:${newAttempts}:${cls.reason}`,
+            error: formattedError,
             updatedAt: new Date(),
           }).where(eq(sendLogs.id, log.id));
 
@@ -425,21 +460,21 @@ function buildProcessor(io) {
           const backoff = guard.computeBackoffMs(newAttempts - 1);
           emitProgress(io, tenantId, {
             campaignId, jobId, phone, status: 'failed', sentCount, total: batchTotal,
-            index: pass === 0 ? i + 1 : total + i + 1,
-            attempt: newAttempts, backoffMs: backoff, reason: cls.reason, error: cls.reason,
+            index: progIdx,
+            attempt: newAttempts, backoffMs: backoff, reason: cls.reason, error: formattedError,
           }, { failedCount, runId: sendJobId });
           failedCount++;
 
           const failures = whatsapp.incrementFailures(tenantId);
-          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+          job.progress(progPct);
 
-          if (await sleepWithCancel(backoff, tenantId, jobId, dispatchId)) return finishCancelled();
+          if (await sleepWithCancel(backoff, tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
 
-          // Falhas consecutivas → pausa longa (defesa adicional)
+          // Falhas consecutivas → pausa longa (defesa adicional, job continua depois)
           const maxFailures = getMaxConsecutiveFailures();
           if (failures >= maxFailures) {
-            io.to(tenantId).emit('send:alert', { campaignId, jobId, message: `${maxFailures} falhas consecutivas — envio pausado` });
-            if (await sleepWithCancel(getFailurePauseMs(), tenantId, jobId, dispatchId)) return finishCancelled();
+            io.to(tenantId).emit('send:alert', { campaignId, jobId, message: `${maxFailures} falhas consecutivas — pausa temporária, envio continua` });
+            if (await sleepWithCancel(getFailurePauseMs(), tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
           }
         }
         }

@@ -25,17 +25,6 @@ router.post('/test-number', requireWAConnected, async (req, res) => {
     const rawPhone = cc && localDigits ? `${cc}${localDigits}` : phone;
     const normalizedPhone = normalizePhoneForWhatsApp(rawPhone);
 
-    // #region agent log
-    console.warn('[debug-2819bc] test-number', {
-      hypothesisId: 'A',
-      tenantId,
-      countryCode: cc || null,
-      localLen: localDigits.length,
-      normalizedLen: normalizedPhone.length,
-    });
-    fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '2819bc' }, body: JSON.stringify({ sessionId: '2819bc', location: 'send.routes.js:test-number', message: 'test-number request', data: { hypothesisId: 'A', tenantId, countryCode: cc || null, localLen: localDigits.length, normalizedLen: normalizedPhone.length }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
-
     if (!normalizedPhone) {
       return res.status(400).json({ error: 'Número inválido' });
     }
@@ -47,16 +36,8 @@ router.post('/test-number', requireWAConnected, async (req, res) => {
 
     await whatsapp.sendMessage(tenantId, normalizedPhone, testMessage, null);
 
-    // #region agent log
-    fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '2819bc' }, body: JSON.stringify({ sessionId: '2819bc', location: 'send.routes.js:test-number:ok', message: 'test-number sent', data: { hypothesisId: 'A', tenantId, normalizedLen: normalizedPhone.length }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
-
     return res.json({ ok: true, phone: normalizedPhone, message: 'Mensagem de teste enviada' });
   } catch (err) {
-    // #region agent log
-    console.warn('[debug-2819bc] test-number error', err.message);
-    fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '2819bc' }, body: JSON.stringify({ sessionId: '2819bc', location: 'send.routes.js:test-number:err', message: 'test-number failed', data: { hypothesisId: 'A', error: String(err.message).slice(0, 200) }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     console.error('send test-number:', err);
     return res.status(500).json({ error: err.message || 'Erro ao enviar teste' });
   }

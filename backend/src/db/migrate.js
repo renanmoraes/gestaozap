@@ -17,6 +17,7 @@ async function runMigrations(pool) {
     `);
     // Idempotente: adiciona 'dlq' se o enum já existia sem ele
     await client.query(`ALTER TYPE send_status ADD VALUE IF NOT EXISTS 'dlq';`).catch(() => {});
+    await client.query(`ALTER TYPE send_status ADD VALUE IF NOT EXISTS 'skipped';`).catch(() => {});
     await client.query(`
       DO $$ BEGIN
         CREATE TYPE contract_status AS ENUM ('active', 'expired', 'cancelled', 'pending');

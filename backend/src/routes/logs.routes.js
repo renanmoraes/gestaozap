@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { eq, and, or, sql, desc, asc, isNotNull } = require('drizzle-orm');
+const { eq, and, or, sql, desc, asc, isNotNull, ne, inArray } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { sendLogs, campaigns, feedbackAnalyses } = require('../db/schema');
 const whatsapp = require('../services/whatsapp.service');
@@ -230,6 +230,18 @@ router.post('/:campaignId/retry/:logId', requireWAConnected, async (req, res) =>
       return res.status(404).json({ error: 'Registro não encontrado ou já não está com falha' });
     }
 
+    const [alreadySent] = await db.select({ id: sendLogs.id }).from(sendLogs)
+      .where(and(
+        eq(sendLogs.tenantId, tenantId),
+        eq(sendLogs.campaignId, req.params.campaignId),
+        eq(sendLogs.phone, log.phone),
+        eq(sendLogs.status, 'sent'),
+        ne(sendLogs.id, log.id),
+      )).limit(1);
+    if (alreadySent) {
+      return res.status(400).json({ error: 'Este número já recebeu esta campanha.' });
+    }
+
     await db.update(sendLogs)
       .set({ status: 'pending', error: null, sentAt: null, updatedAt: new Date() })
       .where(eq(sendLogs.id, log.id));
@@ -267,26 +279,35 @@ router.post('/:campaignId/retry-failed', requireWAConnected, async (req, res) =>
     if (runId) conditions.push(eq(sendLogs.sendJobId, runId));
 
     const failedRows = await db.select().from(sendLogs).where(and(...conditions));
-    if (!failedRows.length) {
-      return res.json({ message: 'Nenhum registro com falha para reenviar', retrying: 0 });
+    const sentInCampaign = await db.select({ phone: sendLogs.phone }).from(sendLogs)
+      .where(and(
+        eq(sendLogs.tenantId, tenantId),
+        eq(sendLogs.campaignId, req.params.campaignId),
+        eq(sendLogs.status, 'sent'),
+      ));
+    const sentSet = new Set(sentInCampaign.map((r) => r.phone));
+    const eligibleRows = failedRows.filter((r) => !sentSet.has(r.phone));
+    if (!eligibleRows.length) {
+      return res.json({ message: 'Nenhum registro com falha para reenviar (ou já enviados nesta campanha)', retrying: 0 });
     }
 
+    const eligibleIds = eligibleRows.map((r) => r.id);
     await db.update(sendLogs)
       .set({ status: 'pending', error: null, sentAt: null, updatedAt: new Date() })
-      .where(and(...conditions));
+      .where(inArray(sendLogs.id, eligibleIds));
 
     const { hourStart = 8, hourEnd = 20, ignoreHours = false } = req.body;
     const result = await requeueFailuresForRun(
       tenantId,
       campaign,
       runId,
-      failedRows,
+      eligibleRows,
       { hourStart, hourEnd, ignoreHours },
     );
 
     res.json({
       jobId: result.jobId,
-      retrying: failedRows.length,
+      retrying: eligibleRows.length,
       runId: result.runId || runId || null,
       reusedJob: result.reusedJob,
     });

@@ -8,8 +8,7 @@ import api from '../api';
 import { DEFAULT_HOUR_START, DEFAULT_HOUR_END, getCurrentHourBr, isOutsideRecommendedHours, confirmSendOutsideHours } from '../utils/hours';
 import { formatDateTimeBr } from '../utils/timezone';
 import { renderWhatsAppLikeText } from '../utils/whatsappFormat';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
+import { resolveCampaignImageUrl } from '../utils/upload';
 const PAGE_SIZE = 50;
 const VARS = ['evento', 'data', 'horario', 'local'];
 
@@ -485,7 +484,7 @@ export default function SendPage() {
               <div className="bg-[#e5ddd5] rounded-xl p-4">
                 <div className="max-w-xs ml-auto bg-[#dcf8c6] rounded-lg px-3 py-2 shadow-sm">
                   {campaign.imagePath && (
-                    <img src={`${API_URL}/${campaign.imagePath}`} alt="Imagem do template"
+                    <img src={resolveCampaignImageUrl(campaign.imagePath)} alt="Imagem do template"
                       className="mb-2 rounded-md w-full object-cover max-h-48" />
                   )}
                   <div className="text-sm text-slate-800 whitespace-pre-wrap">

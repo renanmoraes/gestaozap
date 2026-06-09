@@ -13,6 +13,7 @@ import {
 import { formatDateTimeBr } from '../utils/timezone';
 import { dialog } from '../utils/dialog';
 import { apiErrorMessage, MSG } from '../utils/messages';
+import { humanizeSendError } from '../utils/sendErrors';
 
 async function buildHoursPayload() {
   const hourStart = DEFAULT_HOUR_START;
@@ -51,6 +52,8 @@ function fmtDateTime(date) {
 function statusLabel(status) {
   if (status === 'sent') return 'Enviado';
   if (status === 'failed') return 'Falhou';
+  if (status === 'skipped') return 'Ignorado';
+  if (status === 'dlq') return 'Descartado';
   if (status === 'pending') return 'Pendente';
   if (status === 'unknown') return 'Sem registro';
   return 'Pendente';
@@ -663,9 +666,7 @@ export default function History() {
               <span className="font-mono">{String(failureModal.phone ?? '')}</span>
             </p>
             <pre className="text-xs mt-3 p-3 bg-gray-50 rounded border border-gray-100 overflow-auto max-h-64 whitespace-pre-wrap text-gray-800">
-              {failureModal.error != null && String(failureModal.error).trim() !== ''
-                ? String(failureModal.error)
-                : '(Nenhuma mensagem de erro gravada neste registro.)'}
+              {humanizeSendError(failureModal.error)}
             </pre>
             <div className="mt-4 flex justify-end">
               <button

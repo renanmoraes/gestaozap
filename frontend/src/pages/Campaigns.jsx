@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Image, Eye, ToggleLeft, ToggleRight, Info } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Plus, Pencil, Trash2, Image, Eye, ToggleLeft, ToggleRight, Info, Upload, ImagePlus, RefreshCw } from 'lucide-react';
 import api from '../api';
 import { dialog } from '../utils/dialog';
 import { MSG } from '../utils/messages';
@@ -9,9 +9,8 @@ import {
   CAMPAIGN_IMAGE_HINT,
   formatFileSize,
   validateCampaignImage,
+  resolveCampaignImageUrl,
 } from '../utils/upload';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
 
 const VARIABLES = [
   { key: '{nome}', label: 'Nome do contato', example: 'João' },
@@ -20,6 +19,14 @@ const VARIABLES = [
   { key: '{horario}', label: 'Horário', example: '19h00' },
   { key: '{local}', label: 'Local', example: 'Rua das Flores, 100' },
 ];
+
+const EMPTY_FORM = {
+  name: '',
+  text: '',
+  appendOptOut: false,
+  optOutText: 'Para não receber mais mensagens, responda *SAIR*',
+  imagePath: '',
+};
 
 function buildPreview(text, optOut, optOutText) {
   let preview = text
@@ -32,28 +39,190 @@ function buildPreview(text, optOut, optOutText) {
   return preview;
 }
 
+function CampaignImageUpload({
+  image,
+  imageError,
+  savedImagePath,
+  onSelect,
+  inputId,
+}) {
+  const inputRef = useRef(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [localPreview, setLocalPreview] = useState(null);
+  const [savedPreview, setSavedPreview] = useState(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    if (image) {
+      const url = URL.createObjectURL(image);
+      setLocalPreview(url);
+      setLoadError(false);
+      return () => URL.revokeObjectURL(url);
+    }
+    setLocalPreview(null);
+    return undefined;
+  }, [image]);
+
+  useEffect(() => {
+    setLoadError(false);
+    setSavedPreview(savedImagePath ? resolveCampaignImageUrl(savedImagePath) : null);
+  }, [savedImagePath]);
+
+  const displaySrc = localPreview || (!loadError ? savedPreview : null);
+  const hasImage = Boolean(displaySrc);
+  const isNewFile = Boolean(image);
+  const isExisting = Boolean(!image && savedImagePath);
+
+  const pickFile = () => inputRef.current?.click();
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) onSelect(file);
+  }, [onSelect]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={inputId} className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+          <ImagePlus className="w-4 h-4 text-brand-600" />
+          Imagem do convite
+        </label>
+        <span className="text-[11px] font-medium uppercase tracking-wide text-brand-600 bg-brand-50 border border-brand-200 px-2 py-0.5 rounded-full">
+          Opcional
+        </span>
+      </div>
+      <p className="text-xs text-slate-500 leading-relaxed">
+        Convites com imagem chamam mais atenção no WhatsApp. Você pode anexar um flyer, foto do evento ou arte promocional.
+      </p>
+
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={pickFile}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') pickFile(); }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={[
+          'relative rounded-xl border-2 border-dashed transition-all cursor-pointer overflow-hidden',
+          dragOver
+            ? 'border-brand-500 bg-brand-50/80 scale-[1.01] shadow-md'
+            : hasImage
+              ? 'border-brand-300 bg-white'
+              : 'border-slate-300 bg-gradient-to-br from-slate-50 to-brand-50/40 hover:border-brand-400 hover:bg-brand-50/50',
+        ].join(' ')}
+      >
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="file"
+          accept={CAMPAIGN_IMAGE_ACCEPT}
+          className="sr-only"
+          onChange={(e) => {
+            onSelect(e.target.files[0] || null);
+            e.target.value = '';
+          }}
+        />
+
+        {hasImage ? (
+          <div className="relative group">
+            <img
+              src={displaySrc}
+              alt="Pré-visualização da imagem do template"
+              className="w-full max-h-56 object-cover"
+              onError={() => setLoadError(true)}
+            />
+            <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/40 transition-colors flex items-center justify-center">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/95 text-sm font-medium text-slate-800 shadow-lg">
+                <RefreshCw className="w-4 h-4" />
+                {isExisting ? 'Trocar imagem' : 'Escolher outra'}
+              </span>
+            </div>
+            <div className="absolute top-2 left-2 flex flex-wrap gap-1.5">
+              {isNewFile && (
+                <span className="text-[10px] font-semibold uppercase tracking-wide bg-emerald-600 text-white px-2 py-0.5 rounded-full shadow">
+                  Nova imagem
+                </span>
+              )}
+              {isExisting && !isNewFile && (
+                <span className="text-[10px] font-semibold uppercase tracking-wide bg-slate-800/75 text-white px-2 py-0.5 rounded-full shadow">
+                  Imagem salva
+                </span>
+              )}
+            </div>
+          </div>
+        ) : loadError && savedImagePath ? (
+          <div className="p-8 text-center space-y-3">
+            <div className="w-12 h-12 mx-auto rounded-full bg-amber-100 flex items-center justify-center">
+              <Image className="w-6 h-6 text-amber-600" />
+            </div>
+            <p className="text-sm font-medium text-slate-700">Não foi possível carregar a imagem salva</p>
+            <p className="text-xs text-slate-500">Envie novamente para atualizar o template.</p>
+            <span className="inline-flex items-center gap-2 text-sm font-medium text-brand-700">
+              <Upload className="w-4 h-4" />
+              Clique para enviar outra imagem
+            </span>
+          </div>
+        ) : (
+          <div className="p-8 sm:p-10 text-center space-y-3">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-brand-100 border border-brand-200 flex items-center justify-center shadow-inner">
+              <Upload className="w-7 h-7 text-brand-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">
+                Clique ou arraste uma imagem aqui
+              </p>
+              <p className="text-xs text-slate-500 mt-1">{CAMPAIGN_IMAGE_HINT}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {image && !imageError && (
+        <p className="text-xs text-emerald-700 flex items-center gap-1.5">
+          <CheckIcon />
+          {image.name} · {formatFileSize(image.size)}
+        </p>
+      )}
+      {imageError && (
+        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {imageError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function Campaigns() {
   const [campaigns, setCampaigns] = useState([]);
-  const [form, setForm] = useState({
-    name: '', text: '', appendOptOut: false,
-    optOutText: 'Para não receber mais mensagens, responda *SAIR*',
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [image, setImage] = useState(null);
   const [imageError, setImageError] = useState('');
-  const [imagePreview, setImagePreview] = useState(null);
   const [editing, setEditing] = useState(null);
+  const uploadInputId = 'campaign-image-upload';
 
   const load = async () => { const r = await api.get('/api/campaigns'); setCampaigns(r.data); };
   useEffect(() => { load(); }, []);
 
-  // Preview da imagem: arquivo recém-escolhido (objectURL) ou a já salva no template.
+  const [previewSrc, setPreviewSrc] = useState(null);
+
   useEffect(() => {
     if (image) {
       const url = URL.createObjectURL(image);
-      setImagePreview(url);
+      setPreviewSrc(url);
       return () => URL.revokeObjectURL(url);
     }
-    setImagePreview(form.imagePath ? `${API_URL}/${form.imagePath}` : null);
+    setPreviewSrc(form.imagePath ? resolveCampaignImageUrl(form.imagePath) : null);
     return undefined;
   }, [image, form.imagePath]);
 
@@ -73,6 +242,13 @@ export default function Campaigns() {
     setImage(selected);
   };
 
+  const resetForm = () => {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setImage(null);
+    setImageError('');
+  };
+
   const save = async (e) => {
     e.preventDefault();
     if (imageError) return;
@@ -82,17 +258,17 @@ export default function Campaigns() {
     fd.append('appendOptOut', form.appendOptOut);
     fd.append('optOutText', form.optOutText);
     if (image) fd.append('image', image);
-    if (editing) { await api.put(`/api/campaigns/${editing}`, fd); setEditing(null); }
+    if (editing) { await api.put(`/api/campaigns/${editing}`, fd); }
     else { await api.post('/api/campaigns', fd); }
-    setForm({ name: '', text: '', appendOptOut: false, optOutText: 'Para não receber mais mensagens, responda *SAIR*' });
-    setImage(null);
-    setImageError('');
+    resetForm();
     load();
   };
 
   const remove = async (id) => {
     if (!(await dialog.confirm({ title: 'Remover template', message: MSG.removeTemplate, danger: true }))) return;
-    await api.delete(`/api/campaigns/${id}`); load();
+    await api.delete(`/api/campaigns/${id}`);
+    if (editing === id) resetForm();
+    load();
   };
 
   const edit = (c) => {
@@ -100,7 +276,8 @@ export default function Campaigns() {
     setImage(null);
     setImageError('');
     setForm({
-      name: c.name, text: c.text,
+      name: c.name,
+      text: c.text,
       appendOptOut: c.appendOptOut || false,
       optOutText: c.optOutText || 'Para não receber mais mensagens, responda *SAIR*',
       imagePath: c.imagePath || '',
@@ -120,7 +297,6 @@ export default function Campaigns() {
 
       <div className="page-content">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* Form */}
           <div className="card p-6 space-y-4">
             <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <Plus className="w-4 h-4 text-brand-600" />
@@ -134,7 +310,14 @@ export default function Campaigns() {
                   onChange={(e) => setForm({ ...form, name: e.target.value })} required />
               </div>
 
-              {/* Variable chips */}
+              <CampaignImageUpload
+                inputId={uploadInputId}
+                image={image}
+                imageError={imageError}
+                savedImagePath={form.imagePath}
+                onSelect={handleImageSelect}
+              />
+
               <div className="flex flex-wrap gap-1.5">
                 {VARIABLES.map(({ key }) => (
                   <button key={key} type="button"
@@ -152,7 +335,6 @@ export default function Campaigns() {
                   value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} required />
               </div>
 
-              {/* Opt-out toggle */}
               <div className="border border-slate-200 rounded-lg p-3 space-y-2">
                 <button type="button" onClick={() => setForm({ ...form, appendOptOut: !form.appendOptOut })}
                   className="flex items-center gap-2 w-full text-left">
@@ -167,37 +349,13 @@ export default function Campaigns() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Imagem (opcional)</label>
-                <input
-                  type="file"
-                  accept={CAMPAIGN_IMAGE_ACCEPT}
-                  onChange={(e) => {
-                    handleImageSelect(e.target.files[0] || null);
-                    e.target.value = '';
-                  }}
-                  className="block w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100"
-                />
-                <p className="mt-1.5 text-[11px] text-slate-500">{CAMPAIGN_IMAGE_HINT}</p>
-                {image && !imageError && (
-                  <p className="mt-1 text-[11px] text-emerald-700">
-                    {image.name} · {formatFileSize(image.size)}
-                  </p>
-                )}
-                {imageError && (
-                  <p className="mt-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2">
-                    {imageError}
-                  </p>
-                )}
-              </div>
-
               <div className="flex gap-2">
                 <button type="submit" className="btn-primary flex-1" disabled={Boolean(imageError)}>
                   <Plus className="w-4 h-4" />
                   {editing ? 'Salvar alterações' : 'Criar template'}
                 </button>
                 {editing && (
-                  <button type="button" className="btn-secondary" onClick={() => { setEditing(null); setForm({ name: '', text: '', appendOptOut: false, optOutText: 'Para não receber mais mensagens, responda *SAIR*' }); }}>
+                  <button type="button" className="btn-secondary" onClick={resetForm}>
                     Cancelar
                   </button>
                 )}
@@ -205,7 +363,6 @@ export default function Campaigns() {
             </form>
           </div>
 
-          {/* Preview */}
           <div className="card p-6 space-y-3">
             <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <Eye className="w-4 h-4 text-brand-600" />
@@ -216,11 +373,10 @@ export default function Campaigns() {
               Variáveis substituídas por valores de exemplo
             </div>
             <div className="bg-[#e5ddd5] rounded-xl p-4 min-h-[200px]">
-              {(form.text || imagePreview) ? (
+              {(form.text || previewSrc) ? (
                 <div className="max-w-xs ml-auto bg-[#dcf8c6] rounded-lg px-3 py-2 shadow-sm">
-                  {imagePreview && (
-                    <img src={imagePreview} alt="Imagem do template"
-                      className="mb-2 rounded-md w-full object-cover max-h-48" />
+                  {previewSrc && (
+                    <PreviewImage src={previewSrc} />
                   )}
                   <div className="text-sm text-slate-800 whitespace-pre-wrap">
                     {renderWhatsAppLikeText(preview)}
@@ -243,7 +399,6 @@ export default function Campaigns() {
           </div>
         </div>
 
-        {/* Campaign list */}
         {campaigns.length > 0 && (
           <div className="card overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100">
@@ -252,6 +407,16 @@ export default function Campaigns() {
             <div className="divide-y divide-slate-100">
               {campaigns.map((c) => (
                 <div key={c._id} className="px-6 py-4 flex items-start gap-4">
+                  {c.imagePath && (
+                    <div className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                      <img
+                        src={resolveCampaignImageUrl(c.imagePath)}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-slate-900">{c.name}</span>
@@ -275,5 +440,19 @@ export default function Campaigns() {
         )}
       </div>
     </>
+  );
+}
+
+function PreviewImage({ src }) {
+  const [err, setErr] = useState(false);
+  useEffect(() => { setErr(false); }, [src]);
+  if (err) return null;
+  return (
+    <img
+      src={src}
+      alt="Imagem do template"
+      className="mb-2 rounded-md w-full object-cover max-h-48"
+      onError={() => setErr(true)}
+    />
   );
 }

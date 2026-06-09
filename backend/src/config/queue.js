@@ -10,7 +10,14 @@ const queues = new Map();
 
 function getQueueForTenant(tenantId) {
   if (!queues.has(tenantId)) {
-    queues.set(tenantId, new Bull(`send-queue:${tenantId}`, { redis: REDIS_CONFIG }));
+    queues.set(tenantId, new Bull(`send-queue:${tenantId}`, {
+      redis: REDIS_CONFIG,
+      settings: {
+        lockDuration: 300000,
+        stalledInterval: 60000,
+        maxStalledCount: 10,
+      },
+    }));
   }
   return queues.get(tenantId);
 }
