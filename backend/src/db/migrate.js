@@ -759,12 +759,15 @@ async function runMigrations(pool) {
     `);
     await client.query(`
       DO $$ BEGIN
-        ALTER TABLE bookings ADD CONSTRAINT bookings_no_overlap
-          EXCLUDE USING gist (
-            tenant_id WITH =,
-            tstzrange(starts_at, ends_at, '[)') WITH &&
-          ) WHERE (status IN ('confirmed', 'pending'));
-      EXCEPTION WHEN duplicate_object THEN NULL;
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'bookings_no_overlap'
+        ) THEN
+          ALTER TABLE bookings ADD CONSTRAINT bookings_no_overlap
+            EXCLUDE USING gist (
+              tenant_id WITH =,
+              tstzrange(starts_at, ends_at, '[)') WITH &&
+            ) WHERE (status IN ('confirmed', 'pending'));
+        END IF;
       END $$;
     `);
     await client.query(`
