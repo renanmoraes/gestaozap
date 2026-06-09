@@ -67,11 +67,6 @@ export default function MessageList({ messages, loading, loadingMore, hasMore, o
           const prev = messages[idx - 1];
           const ts = messageTs(m);
           const prevTs = prev ? messageTs(prev) : null;
-          // #region agent log
-          if (!ts) {
-            fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2819bc'},body:JSON.stringify({sessionId:'2819bc',location:'MessageList.jsx:map',message:'invalid message timestamp',data:{idx,messageId:m?.id,direction:m?.direction,rawWaTs:m?.waTimestamp,rawWa_ts:m?.wa_timestamp},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-          }
-          // #endregion
           const showDay = !prevTs || !ts || !isSameDay(prevTs, ts);
           return (
             <React.Fragment key={m.id || `m-${idx}`}>

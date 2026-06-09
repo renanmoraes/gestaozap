@@ -6,9 +6,11 @@ const {
   requestCancelDispatch,
   requestPauseFlag,
   clearPauseFlag,
+  clearCancelFlag,
   isPauseRequested,
 } = require('../config/queue');
 const { removeQueuedJobsForDispatch } = require('../services/dispatch.service');
+const { requireWAConnected } = require('../middleware/featureGate');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { campaigns } = require('../db/schema');
 const {
@@ -214,6 +216,26 @@ router.post('/jobs/:id/resume', async (req, res) => {
     return res.json({ ok: true, action: 'resuming' });
   } catch (err) {
     console.error('queue resume:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/jobs/:id/retry', requireWAConnected, async (req, res) => {
+  try {
+    const tenantId = getTenantId(req);
+    const queue = getQueueForTenant(tenantId);
+    const job = await queue.getJob(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job não encontrado' });
+    const state = await job.getState();
+    if (state !== 'failed') {
+      return res.status(400).json({ error: `Só é possível retentar job com falha (estado atual: ${state})` });
+    }
+    await clearPauseFlag(tenantId, job.id);
+    await clearCancelFlag(tenantId, job.id);
+    await job.retry();
+    return res.json({ ok: true, action: 'retrying', jobId: String(job.id) });
+  } catch (err) {
+    console.error('queue retry:', err);
     res.status(500).json({ error: err.message });
   }
 });

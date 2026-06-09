@@ -95,15 +95,6 @@ router.get('/:chatId/messages', async (req, res) => {
       before: req.query.before,
       limit: req.query.limit,
     });
-    // #region agent log
-    const badTs = (result.items || []).filter((m) => {
-      const ts = m.waTimestamp ?? m.wa_timestamp;
-      return ts == null || Number.isNaN(new Date(ts).getTime());
-    });
-    if (badTs.length) {
-      console.warn('[debug-2819bc] messages with invalid waTimestamp', badTs.map((m) => ({ id: m.id, waTimestamp: m.waTimestamp })));
-    }
-    // #endregion
     res.json(result);
   } catch (err) {
     console.error('chats messages:', err);

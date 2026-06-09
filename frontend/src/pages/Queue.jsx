@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, RefreshCw, XCircle, CheckCircle2, AlertCircle, Loader2, Inbox, Pause, Play } from 'lucide-react';
 import api from '../api';
 import { formatDateTimeBr } from '../utils/timezone';
+import { dialog } from '../utils/dialog';
+import { apiErrorMessage, MSG } from '../utils/messages';
 
 function fmtTs(ts) {
   if (ts == null) return '—';
@@ -70,7 +72,13 @@ export default function Queue() {
 
   const retry = async (id) => {
     setActing(id);
-    try { await api.post(`/api/queue/jobs/${id}/retry`); await load(); } finally { setActing(null); }
+    try {
+      await api.post(`/api/queue/jobs/${id}/retry`);
+      dialog.toast.success('Job reenfileirado para nova tentativa.');
+      await load();
+    } catch (err) {
+      dialog.toast.error(apiErrorMessage(err, MSG.retryFailed));
+    } finally { setActing(null); }
   };
 
   const pause = async (id) => {
