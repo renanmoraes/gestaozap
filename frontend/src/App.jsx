@@ -152,14 +152,14 @@ function AdminApp({ basePath = '' }) {
 
 /* ─── App Tenant ──────────────────────────────────────────── */
 
-function buildTenantNav(isAffiliate) {
+function buildTenantNav(isAffiliate, hasPromotions) {
   const items = [
     { to: '/', label: 'WhatsApp', icon: Smartphone, end: true },
     { to: '/chat', label: 'Conversas', icon: MessageCircle },
     { to: '/contacts', label: 'Contatos', icon: Users },
     { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
     { to: '/campaigns', label: 'Templates', icon: FileText },
-    { to: '/promotions', label: 'Promoções', icon: Sparkles },
+    ...(hasPromotions ? [{ to: '/promotions', label: 'Promoções', icon: Sparkles }] : []),
     { to: '/send', label: 'Disparo', icon: Send },
     { to: '/queue', label: 'Fila', icon: Clock },
     { to: '/history', label: 'Histórico', icon: BarChart2 },
@@ -177,12 +177,21 @@ function AffiliateRoute({ isAffiliate, prefix }) {
   return <Affiliate />;
 }
 
+function PromotionsRoute({ prefix }) {
+  const { hasFeature } = useTenant();
+  if (!hasFeature('vitrine-promocoes')) {
+    return <Navigate to={`${prefix}/send`} replace />;
+  }
+  return <Promotions />;
+}
+
 function TenantLayout({ basePath = '' }) {
-  const { isAuthenticated, isLoading, tenant, waStatus, logout, isAffiliate } = useTenant();
+  const { isAuthenticated, isLoading, tenant, waStatus, logout, isAffiliate, hasFeature } = useTenant();
   const [open, setOpen] = useState(true);
   const isMobile = useIsMobile();
   const prefix = basePath.replace(/\/$/, '');
-  const tenantNav = buildTenantNav(isAffiliate);
+  const hasPromotions = hasFeature('vitrine-promocoes');
+  const tenantNav = buildTenantNav(isAffiliate, hasPromotions);
 
   if (window.location.pathname === `${prefix}/registrar` || window.location.pathname === '/registrar') {
     return <Register />;
@@ -287,7 +296,7 @@ function TenantLayout({ basePath = '' }) {
         <Route path={`${prefix}/contacts`} element={<Contacts />} />
         <Route path={`${prefix}/quick-replies`} element={<QuickReplies />} />
         <Route path={`${prefix}/campaigns`} element={<Campaigns />} />
-        <Route path={`${prefix}/promotions`} element={<Promotions />} />
+        <Route path={`${prefix}/promotions`} element={<PromotionsRoute prefix={prefix} />} />
         <Route path={`${prefix}/send`} element={<WaGate><SendPage /></WaGate>} />
         <Route path={`${prefix}/queue`} element={<Queue />} />
         <Route path={`${prefix}/history`} element={<History />} />

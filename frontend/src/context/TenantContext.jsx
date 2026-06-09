@@ -41,7 +41,22 @@ export function TenantProvider({ children }) {
   const [waStatus, setWaStatus] = useState('disconnected');
   const [wrongPhone, setWrongPhone] = useState(null);
   const [accessState, setAccessState] = useState(null);
+  const [featureAccess, setFeatureAccess] = useState({});
   const [isLoading, setIsLoading] = useState(true);
+
+  const loadFeatureAccess = useCallback(() => {
+    if (!localStorage.getItem('gestaozap_token')) {
+      setFeatureAccess({});
+      return Promise.resolve();
+    }
+    return api.get('/api/features/catalog')
+      .then((r) => {
+        const flags = {};
+        (r.data || []).forEach((f) => { flags[f.slug] = !!f.tenantActive; });
+        setFeatureAccess(flags);
+      })
+      .catch(() => setFeatureAccess({}));
+  }, []);
 
   const loadSession = useCallback(() => {
     const token = localStorage.getItem('gestaozap_token');
@@ -53,6 +68,7 @@ export function TenantProvider({ children }) {
         setAuthToken(token);
         setMustChangePwd(Boolean(r.data.user?.mustChangePwd));
         if (r.data.tenantId) localStorage.setItem('gestaozap_tenant_id', r.data.tenantId);
+        return loadFeatureAccess();
       })
       .catch(() => {
         localStorage.removeItem('gestaozap_token');
@@ -61,7 +77,7 @@ export function TenantProvider({ children }) {
         setTenant(null);
       })
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [loadFeatureAccess]);
 
   useEffect(() => { loadSession(); }, [loadSession]);
 
@@ -101,7 +117,8 @@ export function TenantProvider({ children }) {
     setAuthToken(token);
     setTenant(tenantData);
     setMustChangePwd(Boolean(tenantData?.user?.mustChangePwd));
-  }, []);
+    loadFeatureAccess();
+  }, [loadFeatureAccess]);
 
   const logout = useCallback(() => {
     api.post('/api/auth/logout').catch(() => {});
@@ -111,6 +128,7 @@ export function TenantProvider({ children }) {
     setTenant(null);
     setMustChangePwd(false);
     setWaStatus('disconnected');
+    setFeatureAccess({});
   }, []);
 
   const acceptTerms = useCallback(async () => {
@@ -137,6 +155,8 @@ export function TenantProvider({ children }) {
       tenant, authToken, waStatus, wrongPhone, isLoading, mustChangePwd,
       isAuthenticated: Boolean(authToken && tenant),
       isAffiliate: Boolean(tenant?.isAffiliate),
+      featureAccess,
+      hasFeature: (slug) => Boolean(featureAccess[slug]),
       login, logout, acceptTerms,
       slug: getSlugFromHostname(),
     }}>

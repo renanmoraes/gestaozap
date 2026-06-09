@@ -73,15 +73,13 @@ async function listTenantFeatures(db, tenantId) {
   const subByFeature = new Map(subs.map((s) => [s.featureId, s]));
   const now = new Date();
 
-  return catalog.map((f) => {
+  const rows = await Promise.all(catalog.map(async (f) => {
     const sub = subByFeature.get(f.id);
-    const active = f.isFree || (
-      sub
-      && sub.status === 'active'
-      && (!sub.expiresAt || new Date(sub.expiresAt) > now)
-    );
-    return { ...f, subscription: sub || null, tenantActive: active };
-  });
+    const access = await tenantHasFeature(db, tenantId, f.slug, now);
+    return { ...f, subscription: sub || null, tenantActive: access.active };
+  }));
+
+  return rows;
 }
 
 async function enableFeatureForTenant(db, tenantId, featureSlug, options = {}) {

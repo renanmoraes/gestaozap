@@ -15,11 +15,11 @@ const BOTTOM_NAV = [
   { to: '/queue', label: 'Fila', icon: Clock },
 ];
 
-function MoreMenu({ open, onClose, prefix, extraItems }) {
+function MoreMenu({ open, onClose, prefix, extraItems, showPromotions }) {
   if (!open) return null;
 
   const moreItems = [
-    { to: '/promotions', label: 'Promoções', icon: Sparkles },
+    ...(showPromotions ? [{ to: '/promotions', label: 'Promoções', icon: Sparkles }] : []),
     { to: '/history', label: 'Histórico', icon: BarChart2 },
     { to: '/quick-replies', label: 'Mensagens rápidas', icon: ZapIcon },
     { to: '/billing', label: 'Financeiro', icon: CreditCard },
@@ -65,9 +65,10 @@ function MoreMenu({ open, onClose, prefix, extraItems }) {
 
 export default function MobileShell({ children, prefix, sidebar }) {
   const isMobile = useIsMobile();
-  const { tenant, waStatus, logout, isAffiliate } = useTenant();
+  const { tenant, waStatus, logout, isAffiliate, hasFeature } = useTenant();
   const [moreOpen, setMoreOpen] = useState(false);
   const location = useLocation();
+  const showPromotions = hasFeature('vitrine-promocoes');
 
   if (!isMobile) {
     return (
@@ -83,7 +84,10 @@ export default function MobileShell({ children, prefix, sidebar }) {
     extraItems.push({ to: '/affiliate', label: 'Afiliado', icon: UserCheck });
   }
 
-  const isMoreActive = ['/promotions', '/history', '/quick-replies', '/billing', '/backup', '/affiliate']
+  const isMoreActive = [
+    ...(showPromotions ? ['/promotions'] : []),
+    '/history', '/quick-replies', '/billing', '/backup', '/affiliate',
+  ]
     .some((p) => location.pathname.endsWith(p) || location.pathname.includes(`${prefix}${p}`));
 
   return (
@@ -142,6 +146,7 @@ export default function MobileShell({ children, prefix, sidebar }) {
         onClose={() => setMoreOpen(false)}
         prefix={prefix}
         extraItems={extraItems}
+        showPromotions={showPromotions}
       />
     </div>
   );
