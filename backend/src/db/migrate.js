@@ -650,6 +650,13 @@ async function runMigrations(pool) {
         ADD COLUMN IF NOT EXISTS is_complimentary BOOLEAN NOT NULL DEFAULT false;
     `);
 
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_path TEXT;
+    `);
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS profile_json JSONB NOT NULL DEFAULT '{}';
+    `);
+
     await client.query('COMMIT');
     console.log('[db] migrations completed');
   } catch (err) {

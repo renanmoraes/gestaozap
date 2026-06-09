@@ -1,7 +1,94 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { ExternalLink, MapPin } from 'lucide-react';
 import PromotionLayoutRenderer from '../../components/promotions/PromotionLayoutRenderer';
 import { defaultCtaMessage } from '../../utils/whatsappLink';
+import { resolveCampaignImageUrl } from '../../utils/upload';
 import './vitrine.css';
+
+function formatAddress(addr) {
+  if (!addr) return null;
+  const parts = [addr.line1, addr.neighborhood, addr.city, addr.state].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+function availabilityBadge(profile) {
+  if (!profile) return null;
+  if (profile.availabilityStatus === 'closed_today') {
+    return { text: 'Fechado hoje', tone: 'closed' };
+  }
+  if (profile.availabilityStatus === 'delivery_only') {
+    return { text: 'Delivery / remoto', tone: 'delivery' };
+  }
+  if (profile.isOpenNow === true) {
+    return { text: 'Aberto agora', tone: 'open' };
+  }
+  if (profile.isOpenNow === false && profile.availabilityStatus === 'open') {
+    return { text: 'Fechado no momento', tone: 'closed' };
+  }
+  if (profile.availabilityStatus === 'custom' && profile.availabilityNote) {
+    return { text: profile.availabilityNote, tone: 'custom' };
+  }
+  return null;
+}
+
+function VitrineHeader({ tenantName, profile }) {
+  const logoSrc = profile?.logoUrl ? resolveCampaignImageUrl(profile.logoUrl) : null;
+  const address = formatAddress(profile?.address);
+  const badge = availabilityBadge(profile);
+  const instagram = profile?.instagramUrl?.trim();
+
+  return (
+    <header className="promo-vitrine-header">
+      {logoSrc && (
+        <div className="promo-vitrine-logo-wrap">
+          <img src={logoSrc} alt="" className="promo-vitrine-logo" />
+        </div>
+      )}
+      <h1>{tenantName}</h1>
+      {profile?.tagline && <p className="promo-vitrine-tagline">{profile.tagline}</p>}
+      <p className="promo-vitrine-subtitle">Promoção do dia</p>
+
+      {(badge || profile?.todayHoursLabel) && (
+        <div className="promo-vitrine-meta">
+          {badge && (
+            <span className={`promo-vitrine-badge promo-vitrine-badge--${badge.tone}`}>
+              {badge.text}
+            </span>
+          )}
+          {profile?.todayHoursLabel && (
+            <span className="promo-vitrine-hours">{profile.todayHoursLabel}</span>
+          )}
+        </div>
+      )}
+
+      {profile?.availabilityNote && profile.availabilityStatus !== 'custom' && (
+        <p className="promo-vitrine-note">{profile.availabilityNote}</p>
+      )}
+
+      {(address || instagram) && (
+        <div className="promo-vitrine-contact">
+          {address && (
+            <span className="promo-vitrine-address">
+              <MapPin className="w-3.5 h-3.5 shrink-0" />
+              {address}
+            </span>
+          )}
+          {instagram && (
+            <a
+              href={instagram.startsWith('http') ? instagram : `https://${instagram}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="promo-vitrine-instagram"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Instagram
+            </a>
+          )}
+        </div>
+      )}
+    </header>
+  );
+}
 
 const REDIRECT_URL = 'https://gestaozap.digital';
 
@@ -125,10 +212,7 @@ export default function PromotionVitrinePublic() {
 
   return (
     <div className="promo-vitrine-page">
-      <header className="promo-vitrine-header">
-        <h1>{data.tenantName}</h1>
-        <p>Promoção do dia</p>
-      </header>
+      <VitrineHeader tenantName={data.tenantName} profile={data.profile} />
 
       <main className="promo-vitrine-body">
         {data.empty ? (

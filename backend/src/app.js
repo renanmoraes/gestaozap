@@ -91,6 +91,7 @@ app.use('/api/chats', tenantResolver, authGuard, require('./routes/chats.routes'
 app.use('/api/quick-replies', tenantResolver, authGuard, require('./routes/quick-replies.routes'));
 app.use('/api/features', tenantResolver, authGuard, require('./routes/features.routes'));
 app.use('/api/promotions', tenantResolver, authGuard, require('./routes/promotions.routes'));
+app.use('/api/tenant/profile', tenantResolver, authGuard, require('./routes/tenant-profile.routes'));
 app.use('/api/public/promotions', tenantResolver, require('./routes/public-promotions.routes'));
 
 app.set('io', io);

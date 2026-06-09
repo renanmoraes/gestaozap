@@ -7,6 +7,9 @@ const {
   recordEvent,
   recordLead,
 } = require('../services/promotion.service');
+const { buildPublicProfile } = require('../services/tenant-profile.service');
+const { tenants } = require('../db/schema');
+const { eq } = require('drizzle-orm');
 
 const REDIRECT_URL = process.env.MARKETING_URL || 'https://gestaozap.digital';
 
@@ -30,11 +33,20 @@ router.get('/vitrine', async (req, res) => {
     const promos = await getActivePromotions(db, tenant.id);
     const phone = await getTenantWhatsAppPhone(db, tenant.id);
 
+    const [tenantRow] = await db.select({
+      name: tenants.name,
+      logoPath: tenants.logoPath,
+      profileJson: tenants.profileJson,
+    }).from(tenants).where(eq(tenants.id, tenant.id));
+
+    const profile = buildPublicProfile(tenantRow || tenant);
+
     if (!promos.length) {
       return res.json({
         empty: true,
         tenantName: tenant.name,
         phone,
+        profile,
       });
     }
 
@@ -42,6 +54,7 @@ router.get('/vitrine', async (req, res) => {
       empty: false,
       tenantName: tenant.name,
       phone,
+      profile,
       promotions: promos,
     });
   } catch (err) {

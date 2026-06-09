@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Routes, Route, NavLink, Navigate, useSearchParams } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Smartphone, Users, FileText, Send, Clock, BarChart2, Database,
   ChevronLeft, ChevronRight, Zap, CreditCard, LogOut,
-  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles,
+  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles, UserCircle,
 } from 'lucide-react';
 import MobileShell from './components/layout/MobileShell';
 import MobileWaBlock from './components/MobileWaBlock';
@@ -33,6 +33,8 @@ import AdminTenantDetail from './pages/admin/AdminTenantDetail';
 import AdminStorage from './pages/admin/AdminStorage';
 import AdminFeatures from './pages/admin/AdminFeatures';
 import Promotions from './pages/Promotions';
+import Profile from './pages/Profile';
+import ChangePassword from './pages/ChangePassword';
 import PromotionVitrinePublic from './pages/promotions/PromotionVitrinePublic';
 
 import Register from './pages/Register';
@@ -165,6 +167,7 @@ function buildTenantNav(isAffiliate, hasPromotions) {
     { to: '/history', label: 'Histórico', icon: BarChart2 },
     { to: '/backup', label: 'Backup', icon: Database },
     { to: '/billing', label: 'Financeiro', icon: CreditCard },
+    { to: '/profile', label: 'Perfil', icon: UserCircle },
   ];
   if (isAffiliate) {
     items.push({ to: '/affiliate', label: 'Afiliado', icon: UserCheck });
@@ -175,6 +178,11 @@ function buildTenantNav(isAffiliate, hasPromotions) {
 function AffiliateRoute({ isAffiliate, prefix }) {
   if (!isAffiliate) return <Navigate to={`${prefix}/send`} replace />;
   return <Affiliate />;
+}
+
+function ChangePasswordPage() {
+  const navigate = useNavigate();
+  return <ChangePassword onSuccess={() => navigate(-1)} />;
 }
 
 function PromotionsRoute({ prefix }) {
@@ -302,6 +310,8 @@ function TenantLayout({ basePath = '' }) {
         <Route path={`${prefix}/history`} element={<History />} />
         <Route path={`${prefix}/backup`} element={<Backup />} />
         <Route path={`${prefix}/billing`} element={<Billing />} />
+        <Route path={`${prefix}/profile`} element={<Profile />} />
+        <Route path={`${prefix}/change-password`} element={<ChangePasswordPage />} />
         <Route path={`${prefix}/affiliate`} element={<AffiliateRoute isAffiliate={isAffiliate} prefix={prefix} />} />
         <Route path="*" element={<Navigate to={defaultRoute} replace />} />
       </Routes>

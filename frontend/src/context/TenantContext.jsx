@@ -157,6 +157,7 @@ export function TenantProvider({ children }) {
       isAffiliate: Boolean(tenant?.isAffiliate),
       featureAccess,
       hasFeature: (slug) => Boolean(featureAccess[slug]),
+      reloadSession: loadSession,
       login, logout, acceptTerms,
       slug: getSlugFromHostname(),
     }}>

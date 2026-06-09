@@ -34,6 +34,8 @@ const tenants = pgTable('tenants', {
   // Colunas de afiliado já existentes no banco (migrate.js) — declaradas aqui p/ o drizzle
   affiliateCode: varchar('affiliate_code', { length: 50 }),
   affiliateId: uuid('affiliate_id'),
+  logoPath: text('logo_path'),
+  profileJson: jsonb('profile_json').notNull().default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
