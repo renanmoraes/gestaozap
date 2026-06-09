@@ -14,7 +14,7 @@ const guard = require('./whatsapp.guard');
 const metrics = require('./metrics.service');
 const incidents = require('./incidents.service');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
-const { getMonthKeyBr, isOutsideSendWindow } = require('../utils/timezone.util');
+const { getMonthKeyBr, isOutsideSendWindow, msUntilNextHourBr } = require('../utils/timezone.util');
 
 function getBatchSize()             { return getConfigInt('batch_size', 30); }
 function getBatchPauseMs()          { return getConfigInt('batch_pause_ms', 600_000); }
@@ -98,6 +98,27 @@ async function persistFailure(db, opts) {
   return inserted[0] || null;
 }
 
+/**
+ * Fora da janela de envio: não descarta — re-enfileira o restante como um job
+ * de continuação com `delay` até a próxima abertura. O Bull persiste o job
+ * atrasado no Redis, então o envio sobrevive a restart e retoma sozinho na
+ * próxima janela. Envios longos (vários dias) se auto-gerenciam, parando toda
+ * noite e voltando toda manhã, sem intervenção.
+ */
+async function rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCount, total, fromIndex }) {
+  const tenantId = job.data.tenantId || DEFAULT_TENANT_ID;
+  const { campaignId, contacts } = job.data;
+  const delay = msUntilNextHourBr(hourStart);
+  const resumesAt = new Date(Date.now() + delay).toISOString();
+  await getQueueForTenant(tenantId).add(
+    { ...job.data, contacts: contacts.slice(fromIndex), isContinuation: true },
+    { delay, removeOnComplete: true },
+  );
+  io.to(tenantId).emit('send:paused', { campaignId, jobId: job.id, reason: 'outside_hours', resumesAt, sentCount, total });
+  io.to(tenantId).emit('send:done', { campaignId, jobId: job.id, sentCount, failedCount, total, rescheduled: true, resumesAt });
+  return { sentCount, failedCount, total, rescheduled: true, resumesAt };
+}
+
 function buildProcessor(io) {
   return async (job) => {
     const jobId = job.id;
@@ -120,10 +141,11 @@ function buildProcessor(io) {
       const db = getDb();
       job.progress(0);
 
+      // Disparado fora da janela: agenda pro próximo horário válido (não descarta).
       if (!ignoreHours && isOutsideSendWindow(hourStart, hourEnd)) {
-        const total = contacts.length;
-        io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount: 0, failedCount: 0, total, skippedForHours: true, hourStart, hourEnd });
-        return { sentCount: 0, failedCount: 0, total, skippedForHours: true };
+        return rescheduleOutsideWindow(job, io, {
+          hourStart, sentCount: 0, failedCount: 0, total: contacts.length, fromIndex: 0,
+        });
       }
 
       let sentCount = 0;
@@ -140,6 +162,11 @@ function buildProcessor(io) {
 
       for (let i = 0; i < contacts.length; i++) {
         const contact = contacts[i];
+
+        // Cruzou o fim da janela no meio do envio: agenda o restante e encerra.
+        if (!ignoreHours && i > 0 && isOutsideSendWindow(hourStart, hourEnd)) {
+          return rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCount, total, fromIndex: i });
+        }
 
         await waitWhilePaused(tenantId, jobId, io, { campaignId, sentCount, total });
         if (await isCancelRequested(tenantId, jobId)) {
