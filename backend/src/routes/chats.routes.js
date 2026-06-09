@@ -229,8 +229,9 @@ router.post('/:chatId/send-template', requireWAConnected, async (req, res) => {
     }
 
     const io = req.app.get('io') || getIo();
+    const storageService = require('../services/storage.service');
     const imagePath = campaign.imagePath
-      ? path.join(__dirname, '../../', campaign.imagePath.replace(/^\/+/, ''))
+      ? await storageService.resolveMediaPathForSend(campaign.imagePath)
       : null;
 
     const { message } = await conversationService.sendMessageAndPersist(

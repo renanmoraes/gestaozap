@@ -103,6 +103,9 @@ function classifyError(err) {
   const msg = String(err?.message || err || '').toLowerCase();
 
   // Erros permanentes (não-retry)
+  if (/enoent|no such file|media not found/i.test(msg)) {
+    return { kind: 'permanent', reason: 'media_not_found', original: msg };
+  }
   if (/not a whatsapp|not registered|invalid number|not exist|wid invalid/i.test(msg)) {
     return { kind: 'permanent', reason: 'recipient_not_on_whatsapp' };
   }

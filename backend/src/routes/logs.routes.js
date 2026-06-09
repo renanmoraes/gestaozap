@@ -2,12 +2,12 @@ const router = require('express').Router();
 const { eq, and, or, sql, desc, asc, isNotNull } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { sendLogs, campaigns, feedbackAnalyses } = require('../db/schema');
-const { getQueueForTenant } = require('../config/queue');
 const whatsapp = require('../services/whatsapp.service');
 const { requireWAConnected } = require('../middleware/featureGate');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { classifyReply, isGreetingReply } = require('../utils/reply-classifier.util');
 const { fetchMergedLogsForJob } = require('../utils/job-merge-logs.util');
+const { requeueFailuresForRun } = require('../services/retry.service');
 
 function getTenantId(req) {
   return (req.tenant && req.tenant.id) || DEFAULT_TENANT_ID;
@@ -235,18 +235,15 @@ router.post('/:campaignId/retry/:logId', requireWAConnected, async (req, res) =>
       .where(eq(sendLogs.id, log.id));
 
     const { hourStart = 8, hourEnd = 20, ignoreHours = false } = req.body;
-    const job = await getQueueForTenant(tenantId).add({
-      campaignId: req.params.campaignId,
+    const result = await requeueFailuresForRun(
       tenantId,
-      contacts: [{ phone: log.phone, name: log.name }],
-      text: campaign.text,
-      imagePath: campaign.imagePath || null,
-      hourStart,
-      hourEnd,
-      ignoreHours: Boolean(ignoreHours),
-    });
+      campaign,
+      log.sendJobId ? String(log.sendJobId) : null,
+      [log],
+      { hourStart, hourEnd, ignoreHours },
+    );
 
-    res.json({ jobId: job.id, retrying: 1 });
+    res.json({ jobId: result.jobId, retrying: 1, reusedJob: result.reusedJob, runId: result.runId || log.sendJobId || null });
   } catch (err) {
     console.error('logs retry single:', err);
     res.status(500).json({ error: err.message });
@@ -279,18 +276,20 @@ router.post('/:campaignId/retry-failed', requireWAConnected, async (req, res) =>
       .where(and(...conditions));
 
     const { hourStart = 8, hourEnd = 20, ignoreHours = false } = req.body;
-    const job = await getQueueForTenant(tenantId).add({
-      campaignId: req.params.campaignId,
+    const result = await requeueFailuresForRun(
       tenantId,
-      contacts: failedRows.map((l) => ({ phone: l.phone, name: l.name })),
-      text: campaign.text,
-      imagePath: campaign.imagePath || null,
-      hourStart,
-      hourEnd,
-      ignoreHours: Boolean(ignoreHours),
-    });
+      campaign,
+      runId,
+      failedRows,
+      { hourStart, hourEnd, ignoreHours },
+    );
 
-    res.json({ jobId: job.id, retrying: failedRows.length, runId: runId || null });
+    res.json({
+      jobId: result.jobId,
+      retrying: failedRows.length,
+      runId: result.runId || runId || null,
+      reusedJob: result.reusedJob,
+    });
   } catch (err) {
     console.error('logs retry-failed:', err);
     res.status(500).json({ error: err.message });

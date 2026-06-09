@@ -62,6 +62,11 @@ async function clearPauseFlag(tenantId, jobId) {
   await getQueueForTenant(tenantId).client.del(PAUSE_KEY(tenantId, jobId));
 }
 
+async function clearDispatchCancel(tenantId, dispatchId) {
+  if (!dispatchId) return;
+  await getQueueForTenant(tenantId).client.del(DISPATCH_CANCEL_KEY(tenantId, dispatchId));
+}
+
 module.exports = {
   getQueueForTenant,
   requestCancelFlag,
@@ -69,6 +74,7 @@ module.exports = {
   clearCancelFlag,
   requestCancelDispatch,
   isDispatchCancelRequested,
+  clearDispatchCancel,
   requestPauseFlag,
   isPauseRequested,
   clearPauseFlag,

@@ -6,7 +6,7 @@ const {
   isPauseRequested,
   clearPauseFlag,
 } = require('../config/queue');
-const { eq, and, sql } = require('drizzle-orm');
+const { eq, and, or, sql } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { sendLogs, tenants, messageUsage, contracts } = require('../db/schema');
 const { getConfigInt } = require('../config/platform');
@@ -14,6 +14,7 @@ const whatsapp = require('./whatsapp.service');
 const guard = require('./whatsapp.guard');
 const metrics = require('./metrics.service');
 const incidents = require('./incidents.service');
+const storageService = require('./storage.service');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { getMonthKeyBr, isOutsideSendWindow, msUntilNextHourBr } = require('../utils/timezone.util');
 
@@ -161,6 +162,7 @@ function buildProcessor(io) {
       let sentCount = 0;
       let failedCount = 0;
       const total = contacts.length;
+      const sendJobId = String(job.data.sendJobIdOverride || jobId);
 
       // KILL SWITCH: aborta job inteiro se admin acionou
       const killReason = await guard.getKillSwitch(tenantId);
@@ -170,11 +172,26 @@ function buildProcessor(io) {
         return { sentCount: 0, failedCount: 0, total, cancelled: true, killed: true };
       }
 
-      for (let i = 0; i < contacts.length; i++) {
-        const contact = contacts[i];
+      for (let pass = 0; pass < 2; pass++) {
+        let batch = contacts;
+        if (pass === 1) {
+          const retryRows = await db.select().from(sendLogs).where(and(
+            eq(sendLogs.tenantId, tenantId),
+            eq(sendLogs.campaignId, campaignId),
+            eq(sendLogs.sendJobId, sendJobId),
+            or(eq(sendLogs.status, 'pending'), eq(sendLogs.status, 'failed')),
+          ));
+          if (!retryRows.length) break;
+          batch = retryRows.map((l) => ({ phone: l.phone, name: l.name }));
+        }
+
+        const batchTotal = pass === 0 ? total : total + batch.length;
+
+        for (let i = 0; i < batch.length; i++) {
+        const contact = batch[i];
 
         // Cruzou o fim da janela no meio do envio: agenda o restante e encerra.
-        if (!ignoreHours && i > 0 && isOutsideSendWindow(hourStart, hourEnd)) {
+        if (pass === 0 && !ignoreHours && i > 0 && isOutsideSendWindow(hourStart, hourEnd)) {
           return rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCount, total, fromIndex: i });
         }
 
@@ -201,19 +218,18 @@ function buildProcessor(io) {
         // VALIDAÇÃO E.164 ESTRITA
         const validation = guard.validateE164(contact.phone, 'BR');
         if (!validation.ok) {
-          await persistFailure(db, { tenantId, campaignId, sendJobId: String(jobId), phone: contact.phone, name: contact.name,
+          await persistFailure(db, { tenantId, campaignId, sendJobId, phone: contact.phone, name: contact.name,
             dispatchedAt, errorKind: 'permanent', error: `phone_${validation.reason}` });
           failedCount++;
           guard.recordAckResult(tenantId, true);
           metrics.recordSendOutcome(tenantId, 'dlq');
           metrics.recordDlq(tenantId, 'invalid_phone');
-          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone: contact.phone, status: 'dlq', sentCount, total, index: i + 1, reason: 'invalid_phone' });
-          job.progress(Math.round(((i + 1) / total) * 100));
+          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone: contact.phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'invalid_phone' });
+          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
           continue;
         }
 
         const phone = validation.digits;
-        const sendJobId = String(jobId);
 
         // DEDUPE INSERT (mesma chave reservada → outro worker já está enviando)
         const inserted = await db.insert(sendLogs).values({
@@ -237,7 +253,7 @@ function buildProcessor(io) {
         }
 
         if (!log || log.status === 'sent' || log.status === 'dlq') {
-          job.progress(Math.round(((i + 1) / total) * 100));
+          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
           continue;
         }
 
@@ -249,8 +265,8 @@ function buildProcessor(io) {
           failedCount++;
           metrics.recordDedupeHit(tenantId, 'recipient_24h');
           metrics.recordSendOutcome(tenantId, 'skipped');
-          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'skipped', sentCount, total, index: i + 1, reason: 'rate_limit_24h' });
-          job.progress(Math.round(((i + 1) / total) * 100));
+          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'skipped', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'rate_limit_24h' });
+          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
           continue;
         }
 
@@ -263,8 +279,8 @@ function buildProcessor(io) {
               .where(eq(sendLogs.id, log.id));
             await guard.releaseRecipientLock(tenantId, phone);
             failedCount++;
-            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total, index: i + 1, reason: 'not_on_whatsapp' });
-            job.progress(Math.round(((i + 1) / total) * 100));
+            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'not_on_whatsapp' });
+            job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
             continue;
           }
         }
@@ -273,7 +289,10 @@ function buildProcessor(io) {
 
         try {
           const message = buildMessage(text, { ...variables, name: contact.name }, appendOptOut, optOutText);
-          const sent = await whatsapp.sendMessage(tenantId, phone, message, imagePath || null);
+          const resolvedImagePath = imagePath
+            ? await storageService.resolveMediaPathForSend(imagePath)
+            : null;
+          const sent = await whatsapp.sendMessage(tenantId, phone, message, resolvedImagePath);
 
           await db.update(sendLogs).set({
             status: 'sent',
@@ -291,8 +310,8 @@ function buildProcessor(io) {
           sentCount++;
           trackMessageUsage(db, tenantId, log.id).catch(() => {});
 
-          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'sent', sentCount, total, index: i + 1 });
-          job.progress(Math.round(((i + 1) / total) * 100));
+          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'sent', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1 });
+          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
 
           if (shouldPauseBatch(sentCount)) {
             io.to(tenantId).emit('send:batch_pause', { campaignId, jobId, sentCount });
@@ -328,12 +347,12 @@ function buildProcessor(io) {
             // Libera o lock do destinatário (permite que outro flow tente depois)
             await guard.releaseRecipientLock(tenantId, phone);
             failedCount++;
-            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total, index: i + 1, reason: cls.reason });
+            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: cls.reason });
 
             if (cls.kind === 'policy') {
               io.to(tenantId).emit('send:alert', { campaignId, jobId, message: `Aviso de política: ${cls.reason}` });
             }
-            job.progress(Math.round(((i + 1) / total) * 100));
+            job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
             continue;
           }
 
@@ -344,8 +363,8 @@ function buildProcessor(io) {
               .where(eq(sendLogs.id, log.id));
             await guard.releaseRecipientLock(tenantId, phone);
             failedCount++;
-            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total, index: i + 1, reason: 'max_retries' });
-            job.progress(Math.round(((i + 1) / total) * 100));
+            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'max_retries' });
+            job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
             continue;
           }
 
@@ -360,13 +379,13 @@ function buildProcessor(io) {
 
           const backoff = guard.computeBackoffMs(newAttempts - 1);
           io.to(tenantId).emit('send:progress', {
-            campaignId, jobId, phone, status: 'retry', sentCount, total, index: i + 1,
+            campaignId, jobId, phone, status: 'retry', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1,
             attempt: newAttempts, backoffMs: backoff, reason: cls.reason,
           });
           failedCount++;
 
           const failures = whatsapp.incrementFailures(tenantId);
-          job.progress(Math.round(((i + 1) / total) * 100));
+          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
 
           if (await sleepWithCancel(backoff, tenantId, jobId)) {
             io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
@@ -382,6 +401,7 @@ function buildProcessor(io) {
               return { sentCount, failedCount, total, cancelled: true };
             }
           }
+        }
         }
       }
 

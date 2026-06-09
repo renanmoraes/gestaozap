@@ -9,8 +9,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
+const { randomUUID } = require('crypto');
 const mime = require('mime-types');
 const { getConfig } = require('../config/platform');
+
+const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
+const MEDIA_CACHE_DIR = path.join(UPLOADS_ROOT, '.cache');
 
 let s3 = null;
 let s3Config = null; // snapshot da config que gerou o client atual
@@ -143,10 +149,77 @@ function isR2Active() {
   return Boolean(s3);
 }
 
+function ensureCacheDir() {
+  fs.mkdirSync(MEDIA_CACHE_DIR, { recursive: true });
+}
+
+function writeCachedFile(relHint, buf) {
+  ensureCacheDir();
+  const ext = path.extname(relHint) || '.bin';
+  const cached = path.join(MEDIA_CACHE_DIR, `${randomUUID()}${ext}`);
+  fs.writeFileSync(cached, buf);
+  return cached;
+}
+
+function fetchHttpBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith('https') ? https : http;
+    lib.get(url, (res) => {
+      if (res.statusCode && res.statusCode >= 400) {
+        reject(new Error(`HTTP ${res.statusCode} ao baixar mídia`));
+        res.resume();
+        return;
+      }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+async function downloadFromR2(key) {
+  const { s3, cfg } = buildClient();
+  if (!s3) throw new Error('R2 não configurado');
+  const sdk = tryRequireS3();
+  const resp = await s3.send(new sdk.GetObjectCommand({ Bucket: cfg.bucket, Key: key }));
+  const chunks = [];
+  for await (const chunk of resp.Body) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Resolve imagePath (URL, /uploads/..., uploads/...) para caminho absoluto local
+ * consumível por MessageMedia.fromFilePath. Baixa do R2 ou HTTP quando necessário.
+ */
+async function resolveMediaPathForSend(imagePath) {
+  if (!imagePath) return null;
+  const raw = String(imagePath).trim();
+  if (!raw) return null;
+
+  if (/^https?:\/\//i.test(raw)) {
+    const buf = await fetchHttpBuffer(raw);
+    return writeCachedFile(path.basename(new URL(raw).pathname) || 'media.bin', buf);
+  }
+
+  const rel = raw.replace(/^\/?uploads\/+/, '');
+  const localAbs = path.join(UPLOADS_ROOT, rel);
+  if (fs.existsSync(localAbs)) return localAbs;
+
+  const { s3 } = buildClient();
+  if (s3) {
+    const buf = await downloadFromR2(rel);
+    return writeCachedFile(rel, buf);
+  }
+
+  throw new Error(`ENOENT: no such file or directory, open '${localAbs}'`);
+}
+
 module.exports = {
   uploadFromPath,
   deleteByKey,
   testConnection,
   isR2Active,
   getR2Config,
+  resolveMediaPathForSend,
 };
