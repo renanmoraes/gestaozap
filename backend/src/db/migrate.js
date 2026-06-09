@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Pool } = require('pg');
-const { seedPlatformConfig, seedAdminCompanyAndUser } = require('./seeds');
+const { seedPlatformConfig, seedAdminCompanyAndUser, seedFeatures, seedPromotionLayouts } = require('./seeds');
 
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000001';
 
@@ -523,6 +523,128 @@ async function runMigrations(pool) {
         ON messages(tenant_id, wa_message_id) WHERE wa_message_id IS NOT NULL;
     `);
 
+    // Features / addons
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS features (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        slug VARCHAR(80) NOT NULL UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        price_brl NUMERIC(10,2) NOT NULL DEFAULT 0,
+        is_free BOOLEAN NOT NULL DEFAULT false,
+        is_system BOOLEAN NOT NULL DEFAULT false,
+        active BOOLEAN NOT NULL DEFAULT true,
+        billing_day INTEGER NOT NULL DEFAULT 5,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tenant_features (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        feature_id UUID NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        starts_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ,
+        price_snapshot NUMERIC(10,2),
+        enabled_by VARCHAR(50),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_tenant_features_lookup
+        ON tenant_features(tenant_id, feature_id, status);
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS feature_requests (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        feature_id UUID NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        note TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    // Vitrine de promoções
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promotion_layouts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        slug VARCHAR(80) NOT NULL UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(20) NOT NULL,
+        schema_json JSONB NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT true,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promotions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        layout_id UUID NOT NULL REFERENCES promotion_layouts(id),
+        title VARCHAR(255) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'draft',
+        starts_at TIMESTAMPTZ,
+        expires_at TIMESTAMPTZ,
+        content_json JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_promotions_tenant_status
+        ON promotions(tenant_id, status, starts_at);
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promotion_slots (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+        slot_key VARCHAR(80) NOT NULL,
+        media_type VARCHAR(20),
+        media_path TEXT,
+        cta_text TEXT,
+        label VARCHAR(255),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promotion_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL,
+        slot_id UUID REFERENCES promotion_slots(id) ON DELETE SET NULL,
+        event_type VARCHAR(30) NOT NULL,
+        session_id VARCHAR(64),
+        metadata JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_promotion_events_tenant_time
+        ON promotion_events(tenant_id, created_at DESC);
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promotion_leads (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL,
+        slot_id UUID REFERENCES promotion_slots(id) ON DELETE SET NULL,
+        message TEXT,
+        source VARCHAR(50),
+        visitor_session VARCHAR(64),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_promotion_leads_tenant_time
+        ON promotion_leads(tenant_id, created_at DESC);
+    `);
+
     await client.query('COMMIT');
     console.log('[db] migrations completed');
   } catch (err) {
@@ -566,6 +688,8 @@ async function main() {
     await runMigrations(pool);
     await ensureDefaultTenant(pool);
     await seedPlatformConfig(pool);
+    await seedFeatures(pool);
+    await seedPromotionLayouts(pool);
     await seedAdminCompanyAndUser(pool);
     console.log('[db] setup completo');
   } finally {

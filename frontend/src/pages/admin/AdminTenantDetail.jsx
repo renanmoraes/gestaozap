@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Edit2, Save, X, Wifi, WifiOff, AlertTriangle, CheckCircle2,
   Smartphone, MessageSquare, Users, FileText, CreditCard, Calendar,
-  Shield, ShieldOff, PowerOff, Plus, Tag, Clock, Hash, Building2, RefreshCw,
+  Shield, ShieldOff, PowerOff, Plus, Tag, Clock, Hash, Building2, RefreshCw, Sparkles,
 } from 'lucide-react';
 import api from '../../api';
 import { dialog } from '../../utils/dialog';
@@ -374,6 +374,7 @@ export default function AdminTenantDetail() {
         <Tab active={tab === 'whatsapp'} onClick={() => setTab('whatsapp')} icon={Smartphone}>WhatsApp</Tab>
         <Tab active={tab === 'contracts'} onClick={() => setTab('contracts')} icon={Calendar} badge={contracts.length}>Contratos</Tab>
         <Tab active={tab === 'payments'} onClick={() => setTab('payments')} icon={CreditCard} badge={payments.length}>Pagamentos</Tab>
+        <Tab active={tab === 'features'} onClick={() => setTab('features')} icon={Sparkles}>Features</Tab>
         <Tab active={tab === 'dlq'} onClick={() => setTab('dlq')} icon={AlertTriangle}>DLQ</Tab>
         <Tab active={tab === 'incidents'} onClick={() => setTab('incidents')} icon={Shield}>Incidentes</Tab>
       </div>
@@ -686,11 +687,132 @@ export default function AdminTenantDetail() {
         </div>
       )}
 
+      {/* Features */}
+      {tab === 'features' && <FeaturesPanel tenantId={id} contractExpiresAt={t.contract_expires_at} />}
+
       {/* DLQ */}
       {tab === 'dlq' && <DlqPanel tenantId={id} />}
 
       {/* Incidentes */}
       {tab === 'incidents' && <IncidentsPanel tenantId={id} />}
+    </div>
+  );
+}
+
+/* ──────────────────────── Features Panel ──────────────────────── */
+function FeaturesPanel({ tenantId, contractExpiresAt }) {
+  const [rows, setRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [toggling, setToggling] = React.useState(null);
+
+  const load = () => {
+    setLoading(true);
+    api.get(`/api/admin/tenants/${tenantId}/features`)
+      .then((r) => setRows(r.data))
+      .finally(() => setLoading(false));
+  };
+
+  React.useEffect(load, [tenantId]);
+
+  const toggle = async (slug, enable) => {
+    setToggling(slug);
+    try {
+      await api.post(`/api/admin/tenants/${tenantId}/features/${slug}`, {
+        action: enable ? 'enable' : 'disable',
+      });
+      load();
+    } catch (err) {
+      dialog.toast.error(apiErrorMessage(err));
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const formatMoney = (v) => {
+    const n = parseFloat(v);
+    return Number.isNaN(n) ? v : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  };
+
+  if (loading) {
+    return (
+      <div className="py-8 text-center">
+        <RefreshCw className="w-5 h-5 text-brand-600 animate-spin inline-block" />
+      </div>
+    );
+  }
+
+  const isLifetime = !contractExpiresAt;
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+        <Sparkles className="w-4 h-4 text-brand-600" />
+        {isLifetime ? (
+          <span>Contrato <strong>vitalício</strong> — addons pagos são cobrados à parte.</span>
+        ) : (
+          <span>Contrato com vencimento em <strong>{formatDateBr(contractExpiresAt)}</strong>.</span>
+        )}
+      </div>
+
+      <div className="card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+            <tr>
+              <th className="px-4 py-2.5 text-left">Feature</th>
+              <th className="px-4 py-2.5 text-left">Preço</th>
+              <th className="px-4 py-2.5 text-left">Status no tenant</th>
+              <th className="px-4 py-2.5 text-right">Ação</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((f) => {
+              const sub = f.subscription;
+              const active = f.tenantActive;
+              return (
+                <tr key={f.id}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-slate-900">{f.name}</div>
+                    <div className="text-xs text-slate-500 font-mono">{f.slug}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {f.isFree ? 'Grátis' : `${formatMoney(f.priceBrl)}/mês`}
+                  </td>
+                  <td className="px-4 py-3">
+                    {active ? (
+                      <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                        Ativo{sub?.expiresAt ? ` até ${formatDateBr(sub.expiresAt)}` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-500">Inativo</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {active ? (
+                      <button
+                        type="button"
+                        disabled={toggling === f.slug}
+                        onClick={() => toggle(f.slug, false)}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      >
+                        Revogar
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={toggling === f.slug}
+                        onClick={() => toggle(f.slug, true)}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700"
+                      >
+                        Liberar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

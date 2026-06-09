@@ -19,6 +19,14 @@ const { registerProcessorForTenant } = require('../services/queue.service');
 const { getIo } = require('../config/registry');
 const { sendSignupApproved, sendSignupRejected } = require('../services/signup-email.service');
 const { replaceActiveContract } = require('../services/contract.service');
+const {
+  listFeatures,
+  listTenantFeatures,
+  enableFeatureForTenant,
+  disableFeatureForTenant,
+  createOrUpdateFeature,
+  listPendingRequests,
+} = require('../services/feature.service');
 
 /* ─── Tenants (Clientes) ─────────────────────────────────── */
 
@@ -965,5 +973,78 @@ async function runBackfillInBackground() {
 
   console.log(`[backfill] concluído: ${ok} migrado(s), ${fail} falha(s)`);
 }
+
+/* ─── Features (addons) ──────────────────────────────────── */
+
+router.get('/features', async (req, res) => {
+  try {
+    const db = getDb();
+    const rows = await listFeatures(db);
+    res.json(rows);
+  } catch (err) {
+    console.error('admin features list:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/features', async (req, res) => {
+  try {
+    const db = getDb();
+    const row = await createOrUpdateFeature(db, req.body);
+    res.status(201).json(row);
+  } catch (err) {
+    console.error('admin features create:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch('/features/:id', async (req, res) => {
+  try {
+    const db = getDb();
+    const row = await createOrUpdateFeature(db, req.body, req.params.id);
+    res.json(row);
+  } catch (err) {
+    console.error('admin features patch:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/feature-requests', async (req, res) => {
+  try {
+    const db = getDb();
+    const rows = await listPendingRequests(db);
+    res.json(rows);
+  } catch (err) {
+    console.error('admin feature requests:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/tenants/:id/features', async (req, res) => {
+  try {
+    const db = getDb();
+    const rows = await listTenantFeatures(db, req.params.id);
+    res.json(rows);
+  } catch (err) {
+    console.error('admin tenant features:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/tenants/:id/features/:slug', async (req, res) => {
+  try {
+    const db = getDb();
+    const { action = 'enable' } = req.body || {};
+    if (action === 'disable') {
+      await disableFeatureForTenant(db, req.params.id, req.params.slug);
+      return res.json({ ok: true, action: 'disabled' });
+    }
+    const row = await enableFeatureForTenant(db, req.params.id, req.params.slug, 'admin');
+    res.json({ ok: true, subscription: row });
+  } catch (err) {
+    console.error('admin tenant feature toggle:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
 
 module.exports = router;

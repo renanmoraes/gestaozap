@@ -110,4 +110,43 @@ async function seedAdminCompanyAndUser(pool) {
   }
 }
 
-module.exports = { seedPlatformConfig, seedAdminCompanyAndUser };
+const { seedPromotionLayouts } = require('./promotion-layouts');
+
+const DEFAULT_FEATURES = [
+  {
+    slug: 'vitrine-promocoes',
+    name: 'Vitrine de Promoções',
+    description: 'Panfleto online em /promocao-do-dia com layouts, agendamento, CTAs WhatsApp e leads.',
+    price_brl: '49.99',
+    is_free: false,
+    is_system: true,
+    active: true,
+    billing_day: 5,
+  },
+];
+
+async function seedFeatures(pool) {
+  const client = await pool.connect();
+  try {
+    for (const feat of DEFAULT_FEATURES) {
+      await client.query(`
+        INSERT INTO features (slug, name, description, price_brl, is_free, is_system, active, billing_day)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (slug) DO NOTHING
+      `, [
+        feat.slug, feat.name, feat.description, feat.price_brl,
+        feat.is_free, feat.is_system, feat.active, feat.billing_day,
+      ]);
+    }
+    console.log('[db] features seed aplicado');
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = {
+  seedPlatformConfig,
+  seedAdminCompanyAndUser,
+  seedFeatures,
+  seedPromotionLayouts,
+};

@@ -1,0 +1,269 @@
+.promo-vitrine-page {
+  min-height: 100vh;
+  background: linear-gradient(165deg, #0f172a 0%, #1e293b 45%, #0f172a 100%);
+  color: #f8fafc;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.promo-vitrine-header {
+  text-align: center;
+  padding: 2rem 1rem 1rem;
+}
+
+.promo-vitrine-header h1 {
+  font-size: clamp(1.25rem, 4vw, 1.75rem);
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.promo-vitrine-header p {
+  color: #94a3b8;
+  font-size: 0.875rem;
+  margin: 0.35rem 0 0;
+}
+
+.promo-vitrine-body {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem 1rem 3rem;
+}
+
+.promo-vitrine-empty {
+  text-align: center;
+  padding: 4rem 1.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+}
+
+.promo-vitrine-empty h2 {
+  font-size: 1.25rem;
+  margin: 0 0 0.5rem;
+}
+
+.promo-vitrine-empty p {
+  color: #94a3b8;
+  margin: 0;
+}
+
+.promo-promotion-block {
+  background: #fff;
+  color: #0f172a;
+  border-radius: 1rem;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+.promo-promotion-title {
+  padding: 1rem 1.25rem 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.promo-layout {
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.promo-headline {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.promo-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.promo-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .promo-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.promo-card {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.promo-card-img,
+.promo-hero-img,
+.promo-banner {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+  aspect-ratio: 4/3;
+}
+
+.promo-hero {
+  margin-bottom: 1rem;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.promo-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem;
+  padding: 0.625rem 1rem;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 9999px;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.promo-cta:hover {
+  background: #15803d;
+}
+
+.promo-prices {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+.promo-price-original {
+  text-decoration: line-through;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.promo-price-discount {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #dc2626;
+}
+
+.promo-price-pct {
+  background: #fef2f2;
+  color: #dc2626;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.promo-carousel-track {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 0.5rem;
+}
+
+.promo-carousel-slide {
+  flex: 0 0 85%;
+  scroll-snap-align: start;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.promo-price-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.promo-price-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+
+.promo-blocks {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.promo-block {
+  padding: 0.75rem 1rem;
+  background: #f1f5f9;
+  border-radius: 0.5rem;
+}
+
+.promo-ba-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 540px) {
+  .promo-ba-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.promo-ba-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 0.35rem;
+}
+
+.promo-packages-row {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.promo-package {
+  flex: 0 0 240px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.promo-quote {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: #f8fafc;
+  border-left: 4px solid #16a34a;
+  border-radius: 0 0.5rem 0.5rem 0;
+  font-style: italic;
+}
+
+.promo-quote cite {
+  display: block;
+  margin-top: 0.5rem;
+  font-style: normal;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.promo-footer-cta {
+  margin-top: 1rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.promo-richtext {
+  line-height: 1.55;
+}

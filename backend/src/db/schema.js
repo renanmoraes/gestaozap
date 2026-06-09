@@ -303,6 +303,100 @@ const userSessions = pgTable('user_sessions', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+const features = pgTable('features', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  slug: varchar('slug', { length: 80 }).notNull().unique(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  priceBrl: numeric('price_brl', { precision: 10, scale: 2 }).notNull().default('0'),
+  isFree: boolean('is_free').notNull().default(false),
+  isSystem: boolean('is_system').notNull().default(false),
+  active: boolean('active').notNull().default(true),
+  billingDay: integer('billing_day').notNull().default(5),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const tenantFeatures = pgTable('tenant_features', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  featureId: uuid('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 20 }).notNull().default('active'),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  priceSnapshot: numeric('price_snapshot', { precision: 10, scale: 2 }),
+  enabledBy: varchar('enabled_by', { length: 50 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const featureRequests = pgTable('feature_requests', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  featureId: uuid('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const promotionLayouts = pgTable('promotion_layouts', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  slug: varchar('slug', { length: 80 }).notNull().unique(),
+  name: varchar('name', { length: 255 }).notNull(),
+  category: varchar('category', { length: 20 }).notNull(),
+  schemaJson: jsonb('schema_json').notNull(),
+  active: boolean('active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const promotions = pgTable('promotions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  layoutId: uuid('layout_id').notNull().references(() => promotionLayouts.id),
+  title: varchar('title', { length: 255 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('draft'),
+  startsAt: timestamp('starts_at', { withTimezone: true }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  contentJson: jsonb('content_json').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const promotionSlots = pgTable('promotion_slots', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  promotionId: uuid('promotion_id').notNull().references(() => promotions.id, { onDelete: 'cascade' }),
+  slotKey: varchar('slot_key', { length: 80 }).notNull(),
+  mediaType: varchar('media_type', { length: 20 }),
+  mediaPath: text('media_path'),
+  ctaText: text('cta_text'),
+  label: varchar('label', { length: 255 }),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const promotionEvents = pgTable('promotion_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  promotionId: uuid('promotion_id').references(() => promotions.id, { onDelete: 'set null' }),
+  slotId: uuid('slot_id').references(() => promotionSlots.id, { onDelete: 'set null' }),
+  eventType: varchar('event_type', { length: 30 }).notNull(),
+  sessionId: varchar('session_id', { length: 64 }),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const promotionLeads = pgTable('promotion_leads', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  promotionId: uuid('promotion_id').references(() => promotions.id, { onDelete: 'set null' }),
+  slotId: uuid('slot_id').references(() => promotionSlots.id, { onDelete: 'set null' }),
+  message: text('message'),
+  source: varchar('source', { length: 50 }),
+  visitorSession: varchar('visitor_session', { length: 64 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 module.exports = {
   conversations,
   messages,
@@ -327,6 +421,14 @@ module.exports = {
   campaigns,
   sendLogs,
   feedbackAnalyses,
+  features,
+  tenantFeatures,
+  featureRequests,
+  promotionLayouts,
+  promotions,
+  promotionSlots,
+  promotionEvents,
+  promotionLeads,
   plans,
   contracts,
   paymentRecords,

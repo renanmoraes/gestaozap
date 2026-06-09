@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useSearchParams } from 'react-router-
 import {
   Smartphone, Users, FileText, Send, Clock, BarChart2, Database,
   ChevronLeft, ChevronRight, Zap, CreditCard, LogOut,
-  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud,
+  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles,
 } from 'lucide-react';
 import MobileShell from './components/layout/MobileShell';
 import MobileWaBlock from './components/MobileWaBlock';
@@ -31,6 +31,9 @@ import AdminConfig from './pages/admin/AdminConfig';
 import AdminAffiliates from './pages/admin/AdminAffiliates';
 import AdminTenantDetail from './pages/admin/AdminTenantDetail';
 import AdminStorage from './pages/admin/AdminStorage';
+import AdminFeatures from './pages/admin/AdminFeatures';
+import Promotions from './pages/Promotions';
+import PromotionVitrinePublic from './pages/promotions/PromotionVitrinePublic';
 
 import Register from './pages/Register';
 import Affiliate from './pages/Affiliate';
@@ -71,6 +74,7 @@ function isMarketingSite() {
 
 const ADMIN_NAV = [
   { to: '/tenants', label: 'Clientes', icon: Building2 },
+  { to: '/features', label: 'Features', icon: Sparkles },
   { to: '/affiliates', label: 'Afiliados', icon: UserCheck },
   { to: '/storage', label: 'Armazenamento', icon: Cloud },
   { to: '/config', label: 'Configurações', icon: Settings },
@@ -134,6 +138,7 @@ function AdminApp({ basePath = '' }) {
           <Routes>
             <Route path={`${prefix}/tenants`} element={<AdminTenants />} />
             <Route path={`${prefix}/tenants/:id`} element={<AdminTenantDetail />} />
+            <Route path={`${prefix}/features`} element={<AdminFeatures />} />
             <Route path={`${prefix}/affiliates`} element={<AdminAffiliates />} />
             <Route path={`${prefix}/storage`} element={<AdminStorage />} />
             <Route path={`${prefix}/config`} element={<AdminConfig />} />
@@ -154,6 +159,7 @@ function buildTenantNav(isAffiliate) {
     { to: '/contacts', label: 'Contatos', icon: Users },
     { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
     { to: '/campaigns', label: 'Templates', icon: FileText },
+    { to: '/promotions', label: 'Promoções', icon: Sparkles },
     { to: '/send', label: 'Disparo', icon: Send },
     { to: '/queue', label: 'Fila', icon: Clock },
     { to: '/history', label: 'Histórico', icon: BarChart2 },
@@ -180,6 +186,13 @@ function TenantLayout({ basePath = '' }) {
 
   if (window.location.pathname === `${prefix}/registrar` || window.location.pathname === '/registrar') {
     return <Register />;
+  }
+
+  if (
+    window.location.pathname === `${prefix}/promocao-do-dia`
+    || window.location.pathname === '/promocao-do-dia'
+  ) {
+    return <PromotionVitrinePublic />;
   }
 
   if (isLoading) {
@@ -274,6 +287,7 @@ function TenantLayout({ basePath = '' }) {
         <Route path={`${prefix}/contacts`} element={<Contacts />} />
         <Route path={`${prefix}/quick-replies`} element={<QuickReplies />} />
         <Route path={`${prefix}/campaigns`} element={<Campaigns />} />
+        <Route path={`${prefix}/promotions`} element={<Promotions />} />
         <Route path={`${prefix}/send`} element={<WaGate><SendPage /></WaGate>} />
         <Route path={`${prefix}/queue`} element={<Queue />} />
         <Route path={`${prefix}/history`} element={<History />} />
