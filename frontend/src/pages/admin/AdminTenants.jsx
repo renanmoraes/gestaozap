@@ -1,10 +1,74 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, RefreshCw, CheckCircle2, XCircle, Wifi, AlertCircle, ChevronRight, Mail,
+  Plus, RefreshCw, CheckCircle2, XCircle, Wifi, AlertCircle, ChevronRight, Mail, Clock, Check, X, Tag,
 } from 'lucide-react';
 import api from '../../api';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
+
+function PendingApprovals({ items, onChange }) {
+  const [busy, setBusy] = useState(null);
+
+  const act = async (id, action) => {
+    setBusy(`${id}:${action}`);
+    try {
+      await api.post(`/api/admin/tenants/${id}/${action}`, {});
+      onChange();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Erro na operação');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!items.length) return null;
+
+  return (
+    <div className="card p-5 border-amber-200 bg-amber-50/40">
+      <div className="flex items-center gap-2 mb-4">
+        <Clock className="w-4 h-4 text-amber-600" />
+        <h3 className="text-sm font-semibold text-slate-900">Aprovações pendentes</h3>
+        <span className="badge-blue text-xs">{items.length}</span>
+      </div>
+      <div className="space-y-2">
+        {items.map((t) => (
+          <div key={t.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white border border-slate-200">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-900 truncate">
+                {t.name} <span className="text-xs text-slate-400 font-mono">/{t.slug}</span>
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-3">
+                <span className="uppercase">{t.document_type}: {t.document || '—'}</span>
+                <span className="font-mono">{formatPhone(t.registered_phone)}</span>
+                {t.affiliate_code && (
+                  <span className="inline-flex items-center gap-1 text-brand-600">
+                    <Tag className="w-3 h-3" />{t.affiliate_code}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={() => act(t.id, 'approve')}
+                disabled={busy === `${t.id}:approve`}
+                className="btn-primary text-xs flex items-center gap-1 px-3 py-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />Aprovar
+              </button>
+              <button
+                onClick={() => act(t.id, 'reject')}
+                disabled={busy === `${t.id}:reject`}
+                className="btn-secondary text-xs flex items-center gap-1 px-3 py-1.5"
+              >
+                <X className="w-3.5 h-3.5" />Recusar
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const PLANS = ['starter', 'pro', 'business'];
 const PLAN_LABELS = { starter: 'Starter', pro: 'Pro', business: 'Business' };
@@ -82,6 +146,7 @@ function TenantRow({ tenant }) {
 
 export default function AdminTenants() {
   const [tenants, setTenants] = useState([]);
+  const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
@@ -95,6 +160,7 @@ export default function AdminTenants() {
   const load = () => {
     setLoading(true);
     api.get('/api/admin/tenants').then((r) => setTenants(r.data)).finally(() => setLoading(false));
+    api.get('/api/admin/tenants?status=pending').then((r) => setPending(r.data)).catch(() => {});
   };
 
   useEffect(load, []);
@@ -144,6 +210,8 @@ export default function AdminTenants() {
           <Mail className="w-4 h-4 shrink-0 mt-0.5" />{successMsg}
         </div>
       )}
+
+      <PendingApprovals items={pending} onChange={load} />
 
       {showForm && (
         <div className="card p-5">

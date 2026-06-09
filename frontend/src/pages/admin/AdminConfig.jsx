@@ -14,6 +14,7 @@ const CONFIG_LABELS = {
   backup_retention:         { label: 'Retenção de backups', desc: 'Quantidade de backups automáticos a manter', type: 'number' },
   backup_auto_hour:         { label: 'Hora do backup automático', desc: 'Hora do backup diário (0–23)', type: 'number' },
   terms_current_version:    { label: 'Versão dos termos', desc: 'Versão atual dos Termos de Uso', type: 'text' },
+  trial_days:               { label: 'Dias de trial', desc: 'Dias de teste grátis após aprovação do cadastro', type: 'number' },
 };
 
 export default function AdminConfig() {
