@@ -18,6 +18,7 @@ function getQueueForTenant(tenantId) {
 /* ─── Chaves Redis de controle (isoladas por tenant) ─────── */
 
 const CANCEL_KEY = (tenantId, jobId) => `gestaozap:${tenantId}:send-cancel:${jobId}`;
+const DISPATCH_CANCEL_KEY = (tenantId, dispatchId) => `gestaozap:${tenantId}:dispatch-cancel:${dispatchId}`;
 const PAUSE_KEY  = (tenantId, jobId) => `gestaozap:${tenantId}:send-pause:${jobId}`;
 
 async function requestCancelFlag(tenantId, jobId) {
@@ -33,6 +34,17 @@ async function isCancelRequested(tenantId, jobId) {
 async function clearCancelFlag(tenantId, jobId) {
   if (!jobId) return;
   await getQueueForTenant(tenantId).client.del(CANCEL_KEY(tenantId, jobId));
+}
+
+async function requestCancelDispatch(tenantId, dispatchId) {
+  if (!dispatchId) return;
+  await getQueueForTenant(tenantId).client.set(DISPATCH_CANCEL_KEY(tenantId, dispatchId), '1', 'EX', 604800);
+}
+
+async function isDispatchCancelRequested(tenantId, dispatchId) {
+  if (!dispatchId) return false;
+  const v = await getQueueForTenant(tenantId).client.get(DISPATCH_CANCEL_KEY(tenantId, dispatchId));
+  return v === '1';
 }
 
 async function requestPauseFlag(tenantId, jobId) {
@@ -55,6 +67,8 @@ module.exports = {
   requestCancelFlag,
   isCancelRequested,
   clearCancelFlag,
+  requestCancelDispatch,
+  isDispatchCancelRequested,
   requestPauseFlag,
   isPauseRequested,
   clearPauseFlag,

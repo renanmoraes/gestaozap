@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download, Loader2 } from 'lucide-react';
 import api from '../api';
 import { useSocket } from '../hooks/useSocket';
 import { formatPhone, maskPhoneInput } from '../utils/phone';
@@ -12,9 +12,12 @@ export default function Contacts() {
   const [contacts, setContacts] = useState([]);
   const [allTags, setAllTags] = useState([]);
   const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [optedOutCount, setOptedOutCount] = useState(0);
   const [page, setPage] = useState(1);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMoreRef = useRef(null);
+  const loadingRef = useRef(false);
   const [tag, setTag] = useState('');
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
@@ -35,35 +38,65 @@ export default function Contacts() {
 
   useEffect(() => {
     setPage(1);
+    setContacts([]);
   }, [tag, searchDebounced, showOptedOut]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const loadPage = useCallback(async (pageNum, append) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
       const params = {
-        page,
+        page: pageNum,
         limit: PAGE_SIZE,
         optedOut: showOptedOut ? 'all' : 'hide',
       };
       if (tag) params.tag = tag;
       if (searchDebounced) params.q = searchDebounced;
       const res = await api.get('/api/contacts', { params });
-      setContacts(res.data.items || []);
+      const items = res.data.items || [];
+      setContacts((prev) => (append ? [...prev, ...items] : items));
       setTotal(res.data.total ?? 0);
-      setTotalPages(res.data.totalPages ?? 1);
       setOptedOutCount(res.data.optedOutCount ?? 0);
       setAllTags(res.data.tags || []);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
+      setLoadingMore(false);
     }
-  }, [page, tag, searchDebounced, showOptedOut]);
+  }, [tag, searchDebounced, showOptedOut]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    loadPage(1, false);
+  }, [tag, searchDebounced, showOptedOut, reloadToken, loadPage]);
+
+  useEffect(() => {
+    if (page > 1) loadPage(page, true);
+  }, [page, loadPage]);
+
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el) return undefined;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !loadingRef.current && contacts.length < total) {
+        setPage((p) => p + 1);
+      }
+    }, { rootMargin: '240px' });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [contacts.length, total]);
+
+  const reloadList = () => {
+    setPage(1);
+    setContacts([]);
+    setReloadToken((t) => t + 1);
+  };
 
   useSocket({
     'contact:opted-out': ({ name, phone }) => {
       setOptOutToast({ name, phone });
-      load();
+      reloadList();
       setTimeout(() => setOptOutToast(null), 4000);
     },
   });
@@ -72,20 +105,19 @@ export default function Contacts() {
     e.preventDefault();
     await api.post('/api/contacts', { ...form, tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean) });
     setForm({ name: '', phone: '', tags: '' });
-    setPage(1);
-    load();
+    reloadList();
   };
 
   const remove = async (id) => {
     if (!confirm('Remover contato?')) return;
     await api.delete(`/api/contacts/${id}`);
-    load();
+    reloadList();
   };
 
   const saveEdit = async (id) => {
     await api.put(`/api/contacts/${id}`, { ...editForm, tags: editForm.tags.split(',').map((t) => t.trim()).filter(Boolean) });
     setEditingId(null);
-    load();
+    reloadList();
   };
 
   const startEdit = (c) => {
@@ -96,7 +128,7 @@ export default function Contacts() {
   const toggleOptOut = async (c) => {
     if (c.optedOut) await api.post(`/api/contacts/${c._id}/opt-in`);
     else await api.post(`/api/contacts/${c._id}/opt-out`);
-    load();
+    reloadList();
   };
 
   const importContacts = async () => {
@@ -109,12 +141,8 @@ export default function Contacts() {
     await api.post('/api/contacts/import', { contacts: parsed });
     setImportText('');
     setShowImport(false);
-    setPage(1);
-    load();
+    reloadList();
   };
-
-  const pageStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const pageEnd = Math.min(page * PAGE_SIZE, total);
 
   return (
     <>
@@ -282,34 +310,14 @@ export default function Contacts() {
                     ))}
                   </div>
 
-                  {totalPages > 1 && (
-                    <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-                      <span className="text-xs text-slate-500">
-                        {pageStart}–{pageEnd} de {total.toLocaleString('pt-BR')}
+                  {(contacts.length < total || loadingMore) && (
+                    <div ref={loadMoreRef} className="px-5 py-4 border-t border-slate-100 flex items-center justify-center gap-2 text-xs text-slate-500">
+                      {loadingMore && <Loader2 className="w-4 h-4 animate-spin text-brand-600" />}
+                      <span>
+                        {loadingMore
+                          ? 'Carregando mais contatos…'
+                          : `${contacts.length.toLocaleString('pt-BR')} de ${total.toLocaleString('pt-BR')} — role para carregar mais`}
                       </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPage((p) => Math.max(1, p - 1))}
-                          disabled={page <= 1}
-                          className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-40"
-                        >
-                          <ChevronLeft className="w-3.5 h-3.5" />
-                          Anterior
-                        </button>
-                        <span className="text-xs text-slate-500 tabular-nums">
-                          Página {page} de {totalPages}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                          disabled={page >= totalPages}
-                          className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-40"
-                        >
-                          Próxima
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
                     </div>
                   )}
                 </>
@@ -330,7 +338,7 @@ export default function Contacts() {
       {showWaImport && (
         <ImportContactsModal
           onClose={() => setShowWaImport(false)}
-          onComplete={() => { setPage(1); load(); }}
+          onComplete={reloadList}
         />
       )}
     </>

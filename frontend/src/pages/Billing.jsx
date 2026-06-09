@@ -43,6 +43,7 @@ export default function Billing() {
   const [summary, setSummary]   = useState(null); // { contract, isLifetime, usage, daysUntilExpiry }
   const [history, setHistory]   = useState({ records: [], total: 0 });
   const [usage, setUsage]       = useState([]);
+  const [quota, setQuota]       = useState(null);
   const [loading, setLoading]   = useState(true);
   const [histPage, setHistPage] = useState(1);
 
@@ -52,10 +53,12 @@ export default function Billing() {
       api.get('/api/billing/summary'),
       api.get('/api/billing/history?limit=5&page=1'),
       api.get('/api/billing/usage?months=6'),
-    ]).then(([sum, hist, use]) => {
+      api.get('/api/usage'),
+    ]).then(([sum, hist, use, quotaRes]) => {
       setSummary(sum.data);
       setHistory(hist.data);
       setUsage(use.data.months || []);
+      setQuota(quotaRes.data);
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
@@ -96,6 +99,38 @@ export default function Billing() {
                 Entre em contato com o suporte para contratar um plano e continuar usando a plataforma.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Cota, excedente e concorrência */}
+        {quota?.hasContract && (
+          <div className="card p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Uso do plano — {quota.month}</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Envios simultâneos: {quota.concurrency.inUse}/{quota.concurrency.allowed}
+                </p>
+              </div>
+              {quota.unlimited ? (
+                <span className="text-sm text-slate-500">Mensagens ilimitadas</span>
+              ) : (
+                <span className="text-sm text-slate-600">
+                  {quota.used.toLocaleString('pt-BR')} / {quota.quota?.toLocaleString('pt-BR')} mensagens
+                </span>
+              )}
+            </div>
+            {!quota.unlimited && (
+              <UsageBar used={quota.used} total={quota.quota} />
+            )}
+            {quota.overage > 0 && (
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Excedente: {quota.overage.toLocaleString('pt-BR')} mensagens
+                {quota.projectedOverageCostBrl > 0 && (
+                  <> · custo estimado R$ {quota.projectedOverageCostBrl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</>
+                )}
+              </div>
+            )}
           </div>
         )}
 

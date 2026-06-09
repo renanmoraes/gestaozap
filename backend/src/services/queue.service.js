@@ -1,6 +1,7 @@
 const {
   getQueueForTenant,
   isCancelRequested,
+  isDispatchCancelRequested,
   clearCancelFlag,
   isPauseRequested,
   clearPauseFlag,
@@ -107,11 +108,16 @@ async function persistFailure(db, opts) {
  */
 async function rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCount, total, fromIndex }) {
   const tenantId = job.data.tenantId || DEFAULT_TENANT_ID;
-  const { campaignId, contacts } = job.data;
+  const { campaignId, contacts, dispatchId } = job.data;
   const delay = msUntilNextHourBr(hourStart);
   const resumesAt = new Date(Date.now() + delay).toISOString();
   await getQueueForTenant(tenantId).add(
-    { ...job.data, contacts: contacts.slice(fromIndex), isContinuation: true },
+    {
+      ...job.data,
+      dispatchId: dispatchId || job.data.dispatchId,
+      contacts: contacts.slice(fromIndex),
+      isContinuation: true,
+    },
     { delay, removeOnComplete: true },
   );
   io.to(tenantId).emit('send:paused', { campaignId, jobId: job.id, reason: 'outside_hours', resumesAt, sentCount, total });
@@ -132,11 +138,15 @@ function buildProcessor(io) {
         appendOptOut = false,
         optOutText = '',
         variables = {},
-        hourStart = 8,
-        hourEnd = 20,
+        hourStart: payloadHourStart,
+        hourEnd: payloadHourEnd,
         ignoreHours = false,
         dispatchedAt,
+        dispatchId,
       } = job.data;
+
+      const hourStart = payloadHourStart ?? getConfigInt('hour_start_default', 8);
+      const hourEnd = payloadHourEnd ?? getConfigInt('hour_end_default', 20);
 
       const db = getDb();
       job.progress(0);
@@ -169,7 +179,7 @@ function buildProcessor(io) {
         }
 
         await waitWhilePaused(tenantId, jobId, io, { campaignId, sentCount, total });
-        if (await isCancelRequested(tenantId, jobId)) {
+        if (await isDispatchCancelRequested(tenantId, dispatchId) || await isCancelRequested(tenantId, jobId)) {
           io.to(tenantId).emit('send:cancelled', { campaignId, jobId, sentCount, total });
           io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
           return { sentCount, failedCount, total, cancelled: true };
@@ -210,6 +220,7 @@ function buildProcessor(io) {
           tenantId,
           campaignId,
           sendJobId,
+          dispatchId: dispatchId || null,
           phone,
           name: contact.name,
           status: 'pending',

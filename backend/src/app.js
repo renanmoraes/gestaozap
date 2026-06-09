@@ -85,6 +85,7 @@ app.use('/api/logs', tenantResolver, authGuard, require('./routes/logs.routes'))
 app.use('/api/queue', tenantResolver, authGuard, require('./routes/queue.routes'));
 app.use('/api/backup', tenantResolver, authGuard, require('./routes/backup.routes'));
 app.use('/api/billing', tenantResolver, authGuard, require('./routes/billing.routes'));
+app.use('/api/usage', tenantResolver, authGuard, require('./routes/usage.routes'));
 app.use('/api/chats', tenantResolver, authGuard, require('./routes/chats.routes'));
 app.use('/api/quick-replies', tenantResolver, authGuard, require('./routes/quick-replies.routes'));
 
@@ -96,6 +97,7 @@ const { registerProcessor } = require('./services/queue.service');
 const { scheduleAutoBackup } = require('./services/backup.service');
 const { startConfigPoller } = require('./config/platform');
 const { scheduleContractExpiryCheck } = require('./cron/contractExpiry');
+const { scheduleOverageBilling } = require('./cron/overageBilling');
 const { setIo } = require('./config/registry');
 
 if (require.main === module) {
@@ -105,6 +107,7 @@ if (require.main === module) {
     registerProcessor(io);
     scheduleAutoBackup();
     scheduleContractExpiryCheck();
+    scheduleOverageBilling();
     server.listen(PORT, () => console.log(`Backend running on :${PORT}`));
 
     // Auto-restaura sessões WhatsApp que estavam ativas (usa cache do LocalAuth).

@@ -3,10 +3,12 @@ const { eq, and, inArray } = require('drizzle-orm');
 const {
   getQueueForTenant,
   requestCancelFlag,
+  requestCancelDispatch,
   requestPauseFlag,
   clearPauseFlag,
   isPauseRequested,
 } = require('../config/queue');
+const { removeQueuedJobsForDispatch } = require('../services/dispatch.service');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { campaigns } = require('../db/schema');
 const {
@@ -164,6 +166,11 @@ router.post('/jobs/:id/cancel', async (req, res) => {
     if (!job) return res.status(404).json({ error: 'Job não encontrado' });
     const state = await job.getState();
     if (state === 'completed' || state === 'failed') return res.status(400).json({ error: 'Job já finalizado' });
+    const dispatchId = job.data?.dispatchId;
+    if (dispatchId) {
+      await requestCancelDispatch(tenantId, dispatchId);
+      await removeQueuedJobsForDispatch(tenantId, dispatchId);
+    }
     if (state === 'waiting' || state === 'delayed') {
       await job.remove();
       return res.json({ ok: true, action: 'removed' });

@@ -48,6 +48,9 @@ async function seedPlatformConfig(pool) {
         ON CONFLICT (slug) DO NOTHING
       `, [plan.slug, plan.name, plan.price_brl, plan.messages_per_month]);
     }
+    await client.query(`UPDATE plans SET overage_price_brl = 0.10, max_concurrent_sends = 1 WHERE slug = 'starter';`);
+    await client.query(`UPDATE plans SET overage_price_brl = 0.08, max_concurrent_sends = 3 WHERE slug = 'pro';`);
+    await client.query(`UPDATE plans SET overage_price_brl = NULL, max_concurrent_sends = 10 WHERE slug = 'business';`);
     console.log('[db] seeds aplicados');
   } finally {
     client.release();

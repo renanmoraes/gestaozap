@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket';
 import api from '../api';
 import { DEFAULT_HOUR_START, DEFAULT_HOUR_END, getCurrentHourBr, isOutsideRecommendedHours, confirmSendOutsideHours } from '../utils/hours';
+import { formatDateTimeBr } from '../utils/timezone';
 import { renderWhatsAppLikeText } from '../utils/whatsappFormat';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -56,10 +57,23 @@ export default function SendPage() {
 
   useSocket({
     'send:progress': (d) => { setProgress(d); if (d.jobId != null) setActiveJobId(String(d.jobId)); },
-    'send:paused': (d) => { setPaused(true); if (d.jobId != null) setActiveJobId(String(d.jobId)); setNotice('Envio pausado.'); },
+    'send:paused': (d) => {
+      setPaused(true);
+      if (d.jobId != null) setActiveJobId(String(d.jobId));
+      setNotice(d.reason === 'outside_hours' && d.resumesAt
+        ? `Fora do horário de envio. Pausado automaticamente — retoma em ${formatDateTimeBr(d.resumesAt)}.`
+        : 'Envio pausado.');
+    },
     'send:resumed': (d) => { setPaused(false); if (d.jobId != null) setActiveJobId(String(d.jobId)); setNotice(null); },
     'send:done': (d) => {
-      setProgress(d); setSending(false); setPaused(false); setActiveJobId(null);
+      setProgress(d);
+      // Reagendado por estar fora do horário: o envio continua sozinho — não voltar ao estado ocioso.
+      if (d.rescheduled) {
+        setPaused(true);
+        setNotice(`Fora do horário — ${d.sentCount}/${d.total} enviados. O restante retoma automaticamente em ${formatDateTimeBr(d.resumesAt)}.`);
+        return;
+      }
+      setSending(false); setPaused(false); setActiveJobId(null);
       if (d.cancelled) setNotice(`Envio cancelado. Enviados: ${d.sentCount}/${d.total}`);
       else if (d.skippedForHours) setNotice(`Fora da janela de horário (${d.hourStart}h–${d.hourEnd}h).`);
     },
