@@ -292,6 +292,18 @@ async function runMigrations(pool) {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_tenant ON affiliate_referrals(tenant_id);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tenants_affiliate_code ON tenants(affiliate_code);`);
 
+    // Busca rápida na agenda: trigram p/ ILIKE '%q%' + composto p/ filtro+ordenação + tags.
+    // OBS: em produção (tabela grande) criar com CREATE INDEX CONCURRENTLY ANTES do deploy;
+    // estes IF NOT EXISTS viram no-op depois. Ver docs/superpowers/plans/2026-06-08-scheduler-cota-agenda.md (Part 4).
+    await client.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_name_trgm  ON contacts USING gin (name  gin_trgm_ops);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_phone_trgm ON contacts USING gin (phone gin_trgm_ops);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_tenant_active_created ON contacts(tenant_id, active, created_at);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_tags ON contacts USING gin (tags);`);
+
+    // Integridade: no máximo 1 contrato ativo por tenant
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_active_contract_per_tenant ON contracts(tenant_id) WHERE status = 'active';`);
+
     // Sistema de eventos / incidentes operacionais
     await client.query(`
       CREATE TABLE IF NOT EXISTS system_events (
