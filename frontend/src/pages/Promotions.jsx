@@ -1,17 +1,21 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles, Plus, Copy, ExternalLink, BarChart2, Eye, MousePointer,
-  MessageCircle, Save, Calendar, Loader2, ChevronRight, ChevronLeft,
+  MessageCircle, Loader2, Pencil, Trash2, Link2,
 } from 'lucide-react';
 import api from '../api';
 import { dialog } from '../utils/dialog';
 import { apiErrorMessage } from '../utils/messages';
 import { formatDateTimeBr } from '../utils/timezone';
-import { resolveCampaignImageUrl } from '../utils/upload';
-import PromotionLayoutRenderer from '../components/promotions/PromotionLayoutRenderer';
-import '../pages/promotions/vitrine.css';
+import PromotionEditor from '../components/promotions/PromotionEditor';
+import './promotions/promotions-panel.css';
 
-const STEPS = ['Layout', 'Conteúdo', 'Agendar', 'Publicar'];
+const STATUS_LABELS = {
+  draft: 'Rascunho',
+  active: 'Ativa',
+  scheduled: 'Agendada',
+  expired: 'Expirada',
+};
 
 function vitrineUrl() {
   const host = window.location.hostname;
@@ -21,93 +25,85 @@ function vitrineUrl() {
   return `https://${host}/promocao-do-dia`;
 }
 
-function Stat({ icon: Icon, label, value, color = 'brand' }) {
-  const colors = {
-    brand: 'bg-brand-50 text-brand-700 border-brand-200',
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    amber: 'bg-amber-50 text-amber-700 border-amber-200',
-  };
-  return (
-    <div className="card p-4">
-      <div className={`w-9 h-9 rounded-lg border flex items-center justify-center mb-2 ${colors[color]}`}>
-        <Icon className="w-4 h-4" />
-      </div>
-      <div className="text-2xl font-bold text-slate-900">{value}</div>
-      <div className="text-xs text-slate-500">{label}</div>
-    </div>
-  );
-}
-
 function FeatureTeaser({ onRequest, requesting }) {
   return (
-    <div className="max-w-xl mx-auto card p-8 text-center space-y-4">
-      <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto">
-        <Sparkles className="w-7 h-7" />
+    <div className="promotions-teaser">
+      <div className="promotions-teaser-card">
+        <div className="promotions-teaser-icon">
+          <Sparkles className="w-7 h-7" />
+        </div>
+        <h1>Vitrine de Promoções</h1>
+        <p>
+          Seu panfleto digital em <strong>/promocao-do-dia</strong> — escolha o layout,
+          adicione quantos produtos quiser e publique com um link.
+        </p>
+        <p className="promotions-teaser-price">
+          A partir de <strong>R$ 49,99/mês</strong>
+        </p>
+        <button type="button" onClick={onRequest} disabled={requesting} className="btn btn-primary w-full justify-center">
+          {requesting ? 'Enviando…' : 'Solicitar contratação'}
+        </button>
       </div>
-      <h1 className="text-xl font-bold text-slate-900">Vitrine de Promoções</h1>
-      <p className="text-slate-600 text-sm leading-relaxed">
-        Publique um panfleto online em <strong>/promocao-do-dia</strong> com layouts prontos,
-        agendamento de vigência, botões de WhatsApp e métricas de visualização.
-      </p>
-      <p className="text-slate-500 text-sm">A partir de <strong>R$ 49,99/mês</strong>.</p>
-      <button type="button" onClick={onRequest} disabled={requesting} className="btn btn-primary">
-        {requesting ? 'Enviando…' : 'Solicitar contratação'}
-      </button>
     </div>
   );
 }
 
-function SlotField({ slot, content, onChange, onUpload }) {
-  const val = content[slot.key] || {};
+function StatCard({ icon: Icon, label, value, tone = 'rose' }) {
+  const tones = {
+    rose: 'background:#fff1f2;color:#be123c',
+    emerald: 'background:#ecfdf5;color:#047857',
+    amber: 'background:#fffbeb;color:#b45309',
+  };
+  return (
+    <div className="promotions-stat">
+      <div className="promotions-stat-icon" style={tones[tone]}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="promotions-stat-value">{value}</div>
+      <div className="promotions-stat-label">{label}</div>
+    </div>
+  );
+}
 
-  if (slot.type === 'richtext' || slot.type === 'money' || slot.type === 'percent') {
-    return (
-      <label className="block text-sm">
-        <span className="text-slate-600 font-medium">{slot.label}</span>
-        <textarea
-          className="input w-full mt-1"
-          rows={slot.type === 'richtext' ? 4 : 1}
-          maxLength={slot.maxChars}
-          value={val.value || ''}
-          onChange={(e) => onChange(slot.key, { ...val, value: e.target.value })}
-          placeholder={slot.type === 'money' ? 'Ex: 99,90' : ''}
-        />
-      </label>
-    );
-  }
-
-  if (slot.type === 'media') {
-    const preview = val.mediaPath ? resolveCampaignImageUrl(val.mediaPath) : null;
-    return (
-      <div className="border border-slate-200 rounded-lg p-3 space-y-2">
-        <span className="text-sm font-medium text-slate-700">{slot.label}</span>
-        {preview && (
-          val.mediaType === 'video'
-            ? <video src={preview} controls className="w-full max-h-40 rounded" />
-            : <img src={preview} alt="" className="w-full max-h-40 object-cover rounded" />
-        )}
-        <input
-          type="file"
-          accept="image/*,video/mp4,video/webm"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onUpload(slot.key, file);
-            e.target.value = '';
-          }}
-        />
-        {slot.cta && (
-          <input
-            className="input w-full text-sm"
-            placeholder="Texto do WhatsApp (opcional)"
-            value={val.ctaText || ''}
-            onChange={(e) => onChange(slot.key, { ...val, ctaText: e.target.value, label: slot.label })}
-          />
+function PromotionCard({ promo, onEdit, onDelete }) {
+  const itemCount = promo.contentJson?.items?.length;
+  return (
+    <article className="promotions-card">
+      <div>
+        <h3 className="promotions-card-title">{promo.title}</h3>
+        <div className="promotions-card-meta">
+          <span className={`promotions-status promotions-status--${promo.status || 'draft'}`}>
+            {STATUS_LABELS[promo.status] || promo.status}
+          </span>
+          <span className={`promotions-layout-tag promotions-layout-tag--${promo.layoutCategory || 'product'}`}>
+            {promo.layoutName}
+          </span>
+          {itemCount != null && (
+            <span className="text-xs text-stone-500">{itemCount} itens</span>
+          )}
+        </div>
+      </div>
+      <div className="promotions-card-vigencia">
+        {promo.startsAt ? formatDateTimeBr(promo.startsAt) : 'Sem início'}
+        {promo.expiresAt && (
+          <>
+            <span className="hidden sm:inline"> → </span>
+            <br className="sm:hidden" />
+            {formatDateTimeBr(promo.expiresAt)}
+          </>
         )}
       </div>
-    );
-  }
-
-  return null;
+      <div className="promotions-card-actions">
+        <button type="button" onClick={() => onEdit(promo)} className="btn btn-secondary !px-3 !py-1.5 text-xs">
+          <Pencil className="w-3.5 h-3.5" />
+          Editar
+        </button>
+        <button type="button" onClick={() => onDelete(promo.id)} className="btn btn-danger !px-3 !py-1.5 text-xs">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </article>
+  );
 }
 
 export default function Promotions() {
@@ -117,18 +113,8 @@ export default function Promotions() {
   const [promotions, setPromotions] = useState([]);
   const [layouts, setLayouts] = useState([]);
   const [analytics, setAnalytics] = useState(null);
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [step, setStep] = useState(0);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    id: null,
-    title: '',
-    layoutId: '',
-    status: 'draft',
-    startsAt: '',
-    expiresAt: '',
-    contentJson: {},
-  });
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingPromo, setEditingPromo] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -155,13 +141,6 @@ export default function Promotions() {
 
   useEffect(() => { load(); }, []);
 
-  const selectedLayout = useMemo(
-    () => layouts.find((l) => l.id === form.layoutId),
-    [layouts, form.layoutId],
-  );
-
-  const schemaSlots = selectedLayout?.schemaJson?.slots || [];
-
   const requestFeature = async () => {
     setRequesting(true);
     try {
@@ -174,87 +153,18 @@ export default function Promotions() {
     }
   };
 
-  const openWizard = async (promo = null) => {
-    if (promo) {
-      try {
-        const res = await api.get(`/api/promotions/${promo.id}`);
-        const p = res.data;
-        setForm({
-          id: p.id,
-          title: p.title,
-          layoutId: p.layoutId,
-          status: p.status,
-          startsAt: p.startsAt ? p.startsAt.slice(0, 16) : '',
-          expiresAt: p.expiresAt ? p.expiresAt.slice(0, 16) : '',
-          contentJson: p.contentJson || {},
-        });
-      } catch (e) {
-        dialog.alert(apiErrorMessage(e));
-        return;
-      }
-    } else {
-      setForm({
-        id: null,
-        title: 'Promoção do dia',
-        layoutId: layouts[0]?.id || '',
-        status: 'draft',
-        startsAt: '',
-        expiresAt: '',
-        contentJson: {},
-      });
-    }
-    setStep(0);
-    setWizardOpen(true);
+  const openNew = () => {
+    setEditingPromo(null);
+    setEditorOpen(true);
   };
 
-  const updateSlot = (key, data) => {
-    setForm((f) => ({
-      ...f,
-      contentJson: { ...f.contentJson, [key]: data },
-    }));
-  };
-
-  const uploadSlot = async (key, file) => {
-    const fd = new FormData();
-    fd.append('file', file);
+  const openEdit = async (promo) => {
     try {
-      const res = await api.post('/api/promotions/upload', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      updateSlot(key, {
-        mediaPath: res.data.url,
-        mediaType: res.data.mediaType,
-        label: schemaSlots.find((s) => s.key === key)?.label || key,
-      });
+      const res = await api.get(`/api/promotions/${promo.id}`);
+      setEditingPromo(res.data);
+      setEditorOpen(true);
     } catch (e) {
       dialog.alert(apiErrorMessage(e));
-    }
-  };
-
-  const savePromotion = async (publish = false) => {
-    setSaving(true);
-    try {
-      const payload = {
-        title: form.title,
-        layoutId: form.layoutId,
-        contentJson: form.contentJson,
-        startsAt: form.startsAt || null,
-        expiresAt: form.expiresAt || null,
-        status: publish
-          ? (form.startsAt && new Date(form.startsAt) > new Date() ? 'scheduled' : 'active')
-          : form.status,
-      };
-      if (form.id) {
-        await api.patch(`/api/promotions/${form.id}`, payload);
-      } else {
-        await api.post('/api/promotions', payload);
-      }
-      setWizardOpen(false);
-      load();
-    } catch (e) {
-      dialog.alert(apiErrorMessage(e));
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -268,260 +178,119 @@ export default function Promotions() {
     }
   };
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(vitrineUrl());
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(vitrineUrl());
     dialog.alert('Link copiado!');
   };
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16">
+      <div className="page-content flex items-center justify-center py-20">
         <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
       </div>
     );
   }
 
   if (!feature?.active) {
-    return <FeatureTeaser onRequest={requestFeature} requesting={requesting} />;
+    return (
+      <div className="promotions-page">
+        <FeatureTeaser onRequest={requestFeature} requesting={requesting} />
+      </div>
+    );
   }
 
+  const url = vitrineUrl();
+
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="promotions-page">
+      <div className="page-header">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-brand-600" />
+          <h1 className="text-lg font-semibold text-slate-900 promotions-display flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-rose-600" />
             Promoções
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Vitrine pública em{' '}
-            <a href={vitrineUrl()} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">
-              /promocao-do-dia
-            </a>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Monte sua vitrine — adicione quantos itens quiser
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={copyLink} className="btn btn-secondary flex items-center gap-2 text-sm">
-            <Copy className="w-4 h-4" />
-            Copiar link
+        <button type="button" onClick={openNew} className="btn btn-primary shrink-0">
+          <Plus className="w-4 h-4" />
+          Nova promoção
+        </button>
+      </div>
+
+      <div className="page-content space-y-5">
+        <div className="promotions-link-strip">
+          <Link2 className="w-4 h-4 text-rose-500 shrink-0" />
+          <span className="promotions-link-strip-label">Sua vitrine</span>
+          <span className="promotions-link-strip-url" title={url}>{url}</span>
+          <button type="button" onClick={copyLink} className="btn btn-secondary !py-1.5 !px-3 text-xs shrink-0">
+            <Copy className="w-3.5 h-3.5" />
+            Copiar
           </button>
-          <a href={vitrineUrl()} target="_blank" rel="noopener noreferrer" className="btn btn-secondary flex items-center gap-2 text-sm">
-            <ExternalLink className="w-4 h-4" />
-            Ver vitrine
+          <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary !py-1.5 !px-3 text-xs shrink-0">
+            <ExternalLink className="w-3.5 h-3.5" />
+            Abrir
           </a>
-          <button type="button" onClick={() => openWizard()} className="btn btn-primary flex items-center gap-2 text-sm">
-            <Plus className="w-4 h-4" />
-            Nova promoção
-          </button>
         </div>
-      </div>
 
-      {analytics && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Stat icon={Eye} label="Visualizações (30d)" value={analytics.views} />
-          <Stat icon={Eye} label="Hoje" value={analytics.viewsToday} color="emerald" />
-          <Stat icon={MousePointer} label="Cliques WhatsApp" value={analytics.clicks} color="amber" />
-          <Stat icon={MessageCircle} label="Leads" value={analytics.leads} color="emerald" />
-        </div>
-      )}
+        {analytics && (
+          <div className="promotions-stats">
+            <StatCard icon={Eye} label="Views (30d)" value={analytics.views} tone="rose" />
+            <StatCard icon={Eye} label="Hoje" value={analytics.viewsToday} tone="emerald" />
+            <StatCard icon={MousePointer} label="Cliques WA" value={analytics.clicks} tone="amber" />
+            <StatCard icon={MessageCircle} label="Leads" value={analytics.leads} tone="emerald" />
+          </div>
+        )}
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left p-3">Título</th>
-              <th className="text-left p-3">Layout</th>
-              <th className="text-left p-3">Status</th>
-              <th className="text-left p-3">Vigência</th>
-              <th className="text-right p-3">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {promotions.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="p-6 text-center text-slate-500">
-                  Nenhuma promoção cadastrada ainda.
-                </td>
-              </tr>
-            ) : promotions.map((p) => (
-              <tr key={p.id} className="border-t border-slate-100">
-                <td className="p-3 font-medium">{p.title}</td>
-                <td className="p-3 text-slate-600">{p.layoutName}</td>
-                <td className="p-3">
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100">{p.status}</span>
-                </td>
-                <td className="p-3 text-slate-600 text-xs">
-                  {p.startsAt ? formatDateTimeBr(p.startsAt) : '—'}
-                  {p.expiresAt && ` → ${formatDateTimeBr(p.expiresAt)}`}
-                </td>
-                <td className="p-3 text-right space-x-2">
-                  <button type="button" onClick={() => openWizard(p)} className="text-brand-600 hover:underline">
-                    Editar
-                  </button>
-                  <button type="button" onClick={() => removePromotion(p.id)} className="text-red-600 hover:underline">
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        <section>
+          <div className="promotions-list-header">
+            <h2>Suas promoções ({promotions.length})</h2>
+          </div>
 
-      {analytics?.recentLeads?.length > 0 && (
-        <div className="card p-4">
-          <h2 className="font-semibold text-slate-800 flex items-center gap-2 mb-3">
-            <BarChart2 className="w-4 h-4" />
-            Leads recentes
-          </h2>
-          <ul className="space-y-2 text-sm">
-            {analytics.recentLeads.map((l) => (
-              <li key={l.id} className="flex justify-between gap-4 border-b border-slate-100 pb-2">
-                <span className="text-slate-700 truncate">{l.message || 'Clique WhatsApp'}</span>
-                <span className="text-slate-400 shrink-0">{formatDateTimeBr(l.createdAt)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {wizardOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="font-semibold text-slate-900">
-                {form.id ? 'Editar promoção' : 'Nova promoção'}
-              </h2>
-              <button type="button" onClick={() => setWizardOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+          {promotions.length === 0 ? (
+            <div className="promotions-empty">
+              <div className="promotions-empty-icon">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <p>Escolha um layout, adicione fotos e textos — publique quando estiver pronto.</p>
+              <button type="button" onClick={openNew} className="btn btn-primary">
+                <Plus className="w-4 h-4" />
+                Criar promoção
+              </button>
             </div>
-
-            <div className="px-4 pt-3 flex gap-1 text-xs">
-              {STEPS.map((s, i) => (
-                <span
-                  key={s}
-                  className={`px-2 py-1 rounded ${i === step ? 'bg-brand-100 text-brand-700 font-medium' : 'text-slate-400'}`}
-                >
-                  {i + 1}. {s}
-                </span>
+          ) : (
+            <div className="promotions-cards">
+              {promotions.map((p) => (
+                <PromotionCard key={p.id} promo={p} onEdit={openEdit} onDelete={removePromotion} />
               ))}
             </div>
+          )}
+        </section>
 
-            <div className="p-4 space-y-4">
-              {step === 0 && (
-                <>
-                  <label className="block text-sm">
-                    <span className="text-slate-600">Título interno</span>
-                    <input
-                      className="input w-full mt-1"
-                      value={form.title}
-                      onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                    />
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {layouts.map((l) => (
-                      <button
-                        key={l.id}
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, layoutId: l.id }))}
-                        className={`p-3 rounded-lg border text-left text-sm ${
-                          form.layoutId === l.id ? 'border-brand-500 bg-brand-50' : 'border-slate-200'
-                        }`}
-                      >
-                        <div className="font-medium">{l.name}</div>
-                        <div className="text-xs text-slate-500 capitalize">{l.category}</div>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {step === 1 && selectedLayout && (
-                <div className="space-y-3">
-                  {schemaSlots.filter((s) => !s.computed).map((slot) => (
-                    <SlotField
-                      key={slot.key}
-                      slot={slot}
-                      content={form.contentJson}
-                      onChange={updateSlot}
-                      onUpload={uploadSlot}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {step === 2 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="block text-sm">
-                    <span className="text-slate-600 flex items-center gap-1"><Calendar className="w-3 h-3" /> Início</span>
-                    <input
-                      type="datetime-local"
-                      className="input w-full mt-1"
-                      value={form.startsAt}
-                      onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))}
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="text-slate-600 flex items-center gap-1"><Calendar className="w-3 h-3" /> Fim</span>
-                    <input
-                      type="datetime-local"
-                      className="input w-full mt-1"
-                      value={form.expiresAt}
-                      onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))}
-                    />
-                  </label>
-                </div>
-              )}
-
-              {step === 3 && selectedLayout && (
-                <div className="promo-promotion-block">
-                  <h3 className="promo-promotion-title">{form.title}</h3>
-                  <PromotionLayoutRenderer
-                    promotion={{
-                      contentJson: form.contentJson,
-                      layout: selectedLayout,
-                    }}
-                    phone="5511999999999"
-                  />
-                </div>
-              )}
+        {analytics?.recentLeads?.length > 0 && (
+          <section className="promotions-leads">
+            <div className="promotions-leads-header">
+              <BarChart2 className="w-4 h-4 text-rose-600" />
+              Leads recentes
             </div>
-
-            <div className="p-4 border-t border-slate-100 flex justify-between">
-              <button
-                type="button"
-                disabled={step === 0}
-                onClick={() => setStep((s) => s - 1)}
-                className="btn btn-secondary flex items-center gap-1 text-sm"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Voltar
-              </button>
-              <div className="flex gap-2">
-                {step < STEPS.length - 1 ? (
-                  <button
-                    type="button"
-                    onClick={() => setStep((s) => s + 1)}
-                    disabled={step === 0 && !form.layoutId}
-                    className="btn btn-primary flex items-center gap-1 text-sm"
-                  >
-                    Próximo
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                ) : (
-                  <>
-                    <button type="button" onClick={() => savePromotion(false)} disabled={saving} className="btn btn-secondary text-sm">
-                      Salvar rascunho
-                    </button>
-                    <button type="button" onClick={() => savePromotion(true)} disabled={saving} className="btn btn-primary flex items-center gap-1 text-sm">
-                      <Save className="w-4 h-4" />
-                      Publicar
-                    </button>
-                  </>
-                )}
+            {analytics.recentLeads.map((l) => (
+              <div key={l.id} className="promotions-lead-row">
+                <span className="promotions-lead-msg">{l.message || 'Clique no WhatsApp'}</span>
+                <span className="promotions-lead-time">{formatDateTimeBr(l.createdAt)}</span>
               </div>
-            </div>
-          </div>
-        </div>
+            ))}
+          </section>
+        )}
+      </div>
+
+      {editorOpen && (
+        <PromotionEditor
+          layouts={layouts}
+          initial={editingPromo}
+          onClose={() => { setEditorOpen(false); setEditingPromo(null); }}
+          onSaved={load}
+        />
       )}
     </div>
   );

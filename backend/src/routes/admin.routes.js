@@ -1039,7 +1039,12 @@ router.post('/tenants/:id/features/:slug', async (req, res) => {
       await disableFeatureForTenant(db, req.params.id, req.params.slug);
       return res.json({ ok: true, action: 'disabled' });
     }
-    const row = await enableFeatureForTenant(db, req.params.id, req.params.slug, 'admin');
+    const { expiresAt, isComplimentary } = req.body || {};
+    const row = await enableFeatureForTenant(db, req.params.id, req.params.slug, {
+      enabledBy: 'admin',
+      expiresAt,
+      isComplimentary: !!isComplimentary,
+    });
     res.json({ ok: true, subscription: row });
   } catch (err) {
     console.error('admin tenant feature toggle:', err);

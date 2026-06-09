@@ -67,6 +67,18 @@ function formatStampBr(date = now()) {
   return `${year}${month}${day}-${hour}${minute}${second}`;
 }
 
+/** Fim do dia civil em Brasília a partir de YYYY-MM-DD. */
+function endOfCalendarDayBr(dateKey) {
+  if (!dateKey || typeof dateKey !== 'string') {
+    throw new Error('Data inválida');
+  }
+  const parsed = new Date(`${dateKey.trim()}T23:59:59.999-03:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('Data inválida');
+  }
+  return parsed;
+}
+
 module.exports = {
   APP_TIMEZONE,
   now,
@@ -78,4 +90,5 @@ module.exports = {
   msUntilMidnightBr,
   msUntilNextHourBr,
   formatStampBr,
+  endOfCalendarDayBr,
 };

@@ -7,6 +7,7 @@ const {
   tenants,
 } = require('../db/schema');
 const { tenantHasActiveAccess } = require('../utils/access.util');
+const { endOfCalendarDayBr } = require('../utils/timezone.util');
 
 async function getActiveContract(db, tenantId) {
   const [contract] = await db.select().from(contracts)
@@ -63,6 +64,7 @@ async function listTenantFeatures(db, tenantId) {
     startsAt: tenantFeatures.startsAt,
     expiresAt: tenantFeatures.expiresAt,
     priceSnapshot: tenantFeatures.priceSnapshot,
+    isComplimentary: tenantFeatures.isComplimentary,
     enabledBy: tenantFeatures.enabledBy,
   }).from(tenantFeatures)
     .where(eq(tenantFeatures.tenantId, tenantId))
@@ -82,12 +84,36 @@ async function listTenantFeatures(db, tenantId) {
   });
 }
 
-async function enableFeatureForTenant(db, tenantId, featureSlug, enabledBy = 'admin') {
+async function enableFeatureForTenant(db, tenantId, featureSlug, options = {}) {
+  const {
+    enabledBy = 'admin',
+    expiresAt: expiresAtInput = null,
+    isComplimentary = false,
+    startsAt: startsAtInput = null,
+  } = typeof options === 'string' ? { enabledBy: options } : options;
+
   const feature = await getFeatureBySlug(db, featureSlug);
   if (!feature) throw new Error('Feature não encontrada');
 
-  const startsAt = new Date();
-  const expiresAt = feature.isFree ? null : new Date(startsAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const startsAt = startsAtInput ? new Date(startsAtInput) : new Date();
+  if (Number.isNaN(startsAt.getTime())) {
+    throw new Error('Data de início inválida');
+  }
+
+  let expiresAt = null;
+  if (!feature.isFree) {
+    if (!expiresAtInput) {
+      throw new Error('Informe até quando o acesso fica liberado');
+    }
+    expiresAt = endOfCalendarDayBr(expiresAtInput);
+    if (expiresAt <= startsAt) {
+      throw new Error('A data de término deve ser posterior ao início');
+    }
+  }
+
+  const complimentary = !feature.isFree && !!isComplimentary;
+  const priceSnapshot = feature.isFree || complimentary ? '0' : String(feature.priceBrl);
+  const enabledByFinal = complimentary ? 'admin_complimentary' : enabledBy;
 
   await db.update(tenantFeatures)
     .set({ status: 'cancelled', updatedAt: new Date() })
@@ -103,8 +129,9 @@ async function enableFeatureForTenant(db, tenantId, featureSlug, enabledBy = 'ad
     status: 'active',
     startsAt,
     expiresAt,
-    priceSnapshot: feature.priceBrl,
-    enabledBy,
+    priceSnapshot,
+    isComplimentary: complimentary,
+    enabledBy: enabledByFinal,
   }).returning();
 
   return row;

@@ -645,6 +645,11 @@ async function runMigrations(pool) {
         ON promotion_leads(tenant_id, created_at DESC);
     `);
 
+    await client.query(`
+      ALTER TABLE tenant_features
+        ADD COLUMN IF NOT EXISTS is_complimentary BOOLEAN NOT NULL DEFAULT false;
+    `);
+
     await client.query('COMMIT');
     console.log('[db] migrations completed');
   } catch (err) {

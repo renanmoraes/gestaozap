@@ -18,6 +18,14 @@ function computeDiscountPct(original, discount) {
 
 function enrichContent(contentJson, schemaJson) {
   const content = { ...(contentJson || {}) };
+  if (Array.isArray(content.items)) {
+    content.items = content.items.map((item) => {
+      if (!item.priceOriginal && !item.priceDiscount) return item;
+      const pct = computeDiscountPct(item.priceOriginal, item.priceDiscount);
+      return pct != null ? { ...item, discountPct: pct } : item;
+    });
+  }
+  // legacy computed slots
   const slots = schemaJson?.slots || [];
   for (const slot of slots) {
     if (slot.computed && slot.key === 'discount_pct') {
@@ -33,27 +41,43 @@ function enrichContent(contentJson, schemaJson) {
 async function syncPromotionSlots(db, promotionId, contentJson, schemaJson) {
   await db.delete(promotionSlots).where(eq(promotionSlots.promotionId, promotionId));
 
-  const slots = schemaJson?.slots || [];
   let order = 0;
   const inserted = [];
+  const content = contentJson || {};
 
-  for (const slot of slots) {
-    if (slot.type !== 'media') continue;
-    const data = contentJson?.[slot.key];
-    if (!data) continue;
+  const pushSlot = async (slotKey, data, label) => {
     const mediaPath = data.mediaPath || data.media_path || data.url || null;
-    if (!mediaPath && !data.ctaText) continue;
-
+    if (!mediaPath && !data.ctaText && !data.cta_text) return;
     const [row] = await db.insert(promotionSlots).values({
       promotionId,
-      slotKey: slot.key,
+      slotKey,
       mediaType: data.mediaType || data.media_type || (mediaPath?.match(/\.(mp4|webm|mov)$/i) ? 'video' : 'image'),
       mediaPath,
       ctaText: data.ctaText || data.cta_text || null,
-      label: data.label || slot.label || slot.key,
+      label: label || data.title || data.label || slotKey,
       sortOrder: order++,
     }).returning();
     inserted.push(row);
+  };
+
+  if (content.banner?.mediaPath || content.banner?.url) {
+    await pushSlot('banner', content.banner, 'Banner');
+  }
+
+  if (Array.isArray(content.items) && content.items.length) {
+    for (const item of content.items) {
+      await pushSlot(item.id || `item-${order}`, item, item.title);
+    }
+    return inserted;
+  }
+
+  // Legacy: slots fixos do schema antigo
+  const slots = schemaJson?.slots || [];
+  for (const slot of slots) {
+    if (slot.type !== 'media') continue;
+    const data = content[slot.key];
+    if (!data) continue;
+    await pushSlot(slot.key, data, slot.label);
   }
 
   return inserted;

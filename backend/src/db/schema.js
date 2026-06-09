@@ -325,6 +325,7 @@ const tenantFeatures = pgTable('tenant_features', {
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   priceSnapshot: numeric('price_snapshot', { precision: 10, scale: 2 }),
+  isComplimentary: boolean('is_complimentary').notNull().default(false),
   enabledBy: varchar('enabled_by', { length: 50 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

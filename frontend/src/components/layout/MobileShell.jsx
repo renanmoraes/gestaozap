@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Send, FileText, Users, Clock, MoreHorizontal, X, Zap, LogOut,
-  BarChart2, Database, CreditCard,
+  BarChart2, Database, CreditCard, Sparkles,
   UserCheck, Zap as ZapIcon,
 } from 'lucide-react';
 import { useTenant } from '../../context/TenantContext';
@@ -19,6 +19,7 @@ function MoreMenu({ open, onClose, prefix, extraItems }) {
   if (!open) return null;
 
   const moreItems = [
+    { to: '/promotions', label: 'Promoções', icon: Sparkles },
     { to: '/history', label: 'Histórico', icon: BarChart2 },
     { to: '/quick-replies', label: 'Mensagens rápidas', icon: ZapIcon },
     { to: '/billing', label: 'Financeiro', icon: CreditCard },
@@ -82,7 +83,7 @@ export default function MobileShell({ children, prefix, sidebar }) {
     extraItems.push({ to: '/affiliate', label: 'Afiliado', icon: UserCheck });
   }
 
-  const isMoreActive = ['/history', '/quick-replies', '/billing', '/backup', '/affiliate']
+  const isMoreActive = ['/promotions', '/history', '/quick-replies', '/billing', '/backup', '/affiliate']
     .some((p) => location.pathname.endsWith(p) || location.pathname.includes(`${prefix}${p}`));
 
   return (

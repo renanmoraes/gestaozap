@@ -83,17 +83,19 @@ export default function PromotionVitrinePublic() {
     });
   }, [data]);
 
-  const handleCta = useCallback((promotion, slotKey) => {
-    const slot = promotion.slots?.find((s) => s.slotKey === slotKey);
-    const label = slot?.label || slotKey;
-    const message = slot?.ctaText || defaultCtaMessage(label);
+  const handleCta = useCallback((promotion, itemId) => {
+    const slot = promotion.slots?.find((s) => s.slotKey === itemId);
+    const items = promotion.contentJson?.items || [];
+    const item = items.find((i) => i.id === itemId);
+    const label = item?.title || slot?.label || itemId;
+    const message = item?.ctaText || slot?.ctaText || defaultCtaMessage(label);
 
     postEvent({
       eventType: 'cta_click',
       promotionId: promotion.id,
       slotId: slot?.id,
       sessionId: sessionId.current,
-      metadata: { slotKey },
+      metadata: { itemId },
     });
 
     postLead({
@@ -141,7 +143,7 @@ export default function PromotionVitrinePublic() {
               <PromotionLayoutRenderer
                 promotion={promo}
                 phone={data.phone}
-                onCta={(slotKey) => handleCta(promo, slotKey)}
+                onCta={(itemId) => handleCta(promo, itemId)}
               />
             </article>
           ))

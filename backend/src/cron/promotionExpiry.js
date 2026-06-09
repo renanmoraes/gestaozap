@@ -20,15 +20,16 @@ async function expireTenantFeatures() {
     console.log(`[cron] ${expired.length} tenant_features expiradas`);
   }
 
-  // Stub renovação dia 05 — apenas log no MVP
+  // Dia 05 = vencimento de pagamento (não revoga acesso). Apenas log de cobrança futura.
   const day = now.getDate();
   if (day === 5) {
     const activePaid = await db.select().from(tenantFeatures)
       .where(and(
         eq(tenantFeatures.status, 'active'),
+        eq(tenantFeatures.isComplimentary, false),
         or(isNull(tenantFeatures.expiresAt), gt(tenantFeatures.expiresAt, now)),
       ));
-    console.log(`[cron] billing stub: ${activePaid.length} addons ativos para renovação futura`);
+    console.log(`[cron] billing stub (dia 05): ${activePaid.length} addons cobráveis; acesso não é bloqueado por inadimplência`);
   }
 
   return expired.length;

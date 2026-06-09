@@ -700,10 +700,28 @@ export default function AdminTenantDetail() {
 }
 
 /* ──────────────────────── Features Panel ──────────────────────── */
+function defaultAccessUntilDate() {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  return d.toISOString().slice(0, 10);
+}
+
+function toDateInputValue(iso) {
+  if (!iso) return defaultAccessUntilDate();
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return defaultAccessUntilDate();
+  return d.toISOString().slice(0, 10);
+}
+
 function FeaturesPanel({ tenantId, contractExpiresAt }) {
   const [rows, setRows] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [toggling, setToggling] = React.useState(null);
+  const [enableModal, setEnableModal] = React.useState(null);
+  const [enableForm, setEnableForm] = React.useState({
+    expiresAt: defaultAccessUntilDate(),
+    isComplimentary: false,
+  });
 
   const load = () => {
     setLoading(true);
@@ -714,12 +732,54 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
 
   React.useEffect(load, [tenantId]);
 
-  const toggle = async (slug, enable) => {
+  const openEnableModal = (feature, renew = false) => {
+    const sub = feature.subscription;
+    setEnableForm({
+      expiresAt: renew && sub?.expiresAt
+        ? toDateInputValue(sub.expiresAt)
+        : defaultAccessUntilDate(),
+      isComplimentary: !!sub?.isComplimentary,
+    });
+    setEnableModal(feature);
+  };
+
+  const closeEnableModal = () => setEnableModal(null);
+
+  const confirmEnable = async () => {
+    if (!enableModal) return;
+    setToggling(enableModal.slug);
+    try {
+      await api.post(`/api/admin/tenants/${tenantId}/features/${enableModal.slug}`, {
+        action: 'enable',
+        expiresAt: enableForm.expiresAt,
+        isComplimentary: enableForm.isComplimentary,
+      });
+      closeEnableModal();
+      load();
+      dialog.toast.success('Addon liberado');
+    } catch (err) {
+      dialog.toast.error(apiErrorMessage(err));
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const disable = async (slug) => {
     setToggling(slug);
     try {
-      await api.post(`/api/admin/tenants/${tenantId}/features/${slug}`, {
-        action: enable ? 'enable' : 'disable',
-      });
+      await api.post(`/api/admin/tenants/${tenantId}/features/${slug}`, { action: 'disable' });
+      load();
+    } catch (err) {
+      dialog.toast.error(apiErrorMessage(err));
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const enableFree = async (slug) => {
+    setToggling(slug);
+    try {
+      await api.post(`/api/admin/tenants/${tenantId}/features/${slug}`, { action: 'enable' });
       load();
     } catch (err) {
       dialog.toast.error(apiErrorMessage(err));
@@ -745,13 +805,19 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
 
   return (
     <div className="space-y-4">
-      <div className="card p-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-        <Sparkles className="w-4 h-4 text-brand-600" />
-        {isLifetime ? (
-          <span>Contrato <strong>vitalício</strong> — addons pagos são cobrados à parte.</span>
-        ) : (
-          <span>Contrato com vencimento em <strong>{formatDateBr(contractExpiresAt)}</strong>.</span>
-        )}
+      <div className="card p-4 flex flex-wrap items-start gap-2 text-sm text-slate-600">
+        <Sparkles className="w-4 h-4 text-brand-600 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          {isLifetime ? (
+            <p>Contrato <strong>vitalício</strong> — addons pagos são cobrados à parte.</p>
+          ) : (
+            <p>Contrato com vencimento em <strong>{formatDateBr(contractExpiresAt)}</strong>.</p>
+          )}
+          <p className="text-xs text-slate-500">
+            Cobrança de addons: todo dia <strong>05</strong> (vencimento do pagamento).
+            Isso <strong>não bloqueia</strong> o acesso — o addon só encerra na data de vigência que você definir ao liberar.
+          </p>
+        </div>
       </div>
 
       <div className="card overflow-hidden">
@@ -768,6 +834,7 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
             {rows.map((f) => {
               const sub = f.subscription;
               const active = f.tenantActive;
+              const complimentary = sub?.isComplimentary;
               return (
                 <tr key={f.id}>
                   <td className="px-4 py-3">
@@ -779,33 +846,54 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
                   </td>
                   <td className="px-4 py-3">
                     {active ? (
-                      <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                        Ativo{sub?.expiresAt ? ` até ${formatDateBr(sub.expiresAt)}` : ''}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                          Ativo{sub?.expiresAt ? ` até ${formatDateBr(sub.expiresAt)}` : ''}
+                        </span>
+                        {complimentary && (
+                          <span className="text-xs font-medium text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">
+                            Cortesia
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-xs text-slate-500">Inativo</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {active ? (
-                      <button
-                        type="button"
-                        disabled={toggling === f.slug}
-                        onClick={() => toggle(f.slug, false)}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      >
-                        Revogar
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={toggling === f.slug}
-                        onClick={() => toggle(f.slug, true)}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700"
-                      >
-                        Liberar
-                      </button>
-                    )}
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      {active ? (
+                        <>
+                          {!f.isFree && (
+                            <button
+                              type="button"
+                              disabled={toggling === f.slug}
+                              onClick={() => openEnableModal(f, true)}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100"
+                            >
+                              Renovar
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={toggling === f.slug}
+                            onClick={() => disable(f.slug)}
+                            className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          >
+                            Revogar
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={toggling === f.slug}
+                          onClick={() => (f.isFree ? enableFree(f.slug) : openEnableModal(f))}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700"
+                        >
+                          Liberar
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -813,6 +901,64 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
           </tbody>
         </table>
       </div>
+
+      {enableModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40">
+          <div className="card w-full max-w-md p-5 space-y-4 shadow-xl">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Liberar addon</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {enableModal.name} · {formatMoney(enableModal.priceBrl)}/mês
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                Acesso válido até
+              </label>
+              <input
+                type="date"
+                className="input w-full"
+                value={enableForm.expiresAt}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setEnableForm((prev) => ({ ...prev, expiresAt: e.target.value }))}
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                O addon encerra automaticamente após esta data. O vencimento de pagamento (dia 05) não revoga o acesso.
+              </p>
+            </div>
+
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableForm.isComplimentary}
+                onChange={(e) => setEnableForm((prev) => ({ ...prev, isComplimentary: e.target.checked }))}
+                className="w-4 h-4 rounded border-slate-300 text-brand-600 mt-0.5"
+              />
+              <span className="text-sm text-slate-800">
+                <span className="font-medium">Liberação gratuita (cortesia)</span>
+                <span className="block text-xs text-slate-500 mt-0.5">
+                  Não entra na cobrança mensal, mesmo sendo addon pago.
+                </span>
+              </span>
+            </label>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={confirmEnable}
+                disabled={!!toggling || !enableForm.expiresAt}
+                className="btn-primary flex-1 justify-center"
+              >
+                Confirmar liberação
+              </button>
+              <button type="button" onClick={closeEnableModal} className="btn-secondary flex-1 justify-center">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
