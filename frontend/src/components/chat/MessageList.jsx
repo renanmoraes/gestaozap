@@ -2,10 +2,17 @@ import React from 'react';
 import { Loader2, ArrowDown } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import { useChatScroll } from '../../hooks/useChatScroll';
-import { formatDayLabelBr, isSameCalendarDayBr } from '../../utils/timezone';
+import { formatDayLabelBr, isSameCalendarDayBr, parseMessageTimestamp } from '../../utils/timezone';
+
+function messageTs(m) {
+  return parseMessageTimestamp(m?.waTimestamp ?? m?.wa_timestamp);
+}
 
 function isSameDay(a, b) {
-  return isSameCalendarDayBr(a, b);
+  const da = parseMessageTimestamp(a);
+  const db = parseMessageTimestamp(b);
+  if (!da || !db) return false;
+  return isSameCalendarDayBr(da, db);
 }
 
 function formatDay(ts) {
@@ -58,14 +65,20 @@ export default function MessageList({ messages, loading, loadingMore, hasMore, o
 
         {messages.map((m, idx) => {
           const prev = messages[idx - 1];
-          const ts = m.waTimestamp || m.wa_timestamp;
-          const showDay = !prev || !isSameDay(prev.waTimestamp || prev.wa_timestamp, ts);
+          const ts = messageTs(m);
+          const prevTs = prev ? messageTs(prev) : null;
+          // #region agent log
+          if (!ts) {
+            fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2819bc'},body:JSON.stringify({sessionId:'2819bc',location:'MessageList.jsx:map',message:'invalid message timestamp',data:{idx,messageId:m?.id,direction:m?.direction,rawWaTs:m?.waTimestamp,rawWa_ts:m?.wa_timestamp},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+          }
+          // #endregion
+          const showDay = !prevTs || !ts || !isSameDay(prevTs, ts);
           return (
             <React.Fragment key={m.id || `m-${idx}`}>
               {showDay && (
                 <div className="flex justify-center my-3 sticky top-0 z-10">
                   <span className="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1 shadow-sm">
-                    {formatDay(ts)}
+                    {formatDay(ts || Date.now())}
                   </span>
                 </div>
               )}

@@ -3,7 +3,22 @@ export const APP_TIMEZONE = 'America/Sao_Paulo';
 
 const LOCALE = 'pt-BR';
 
+/** Normaliza timestamp da API/socket; retorna null se inválido. */
+export function parseMessageTimestamp(ts) {
+  if (ts == null || ts === '') return null;
+  if (ts instanceof Date) return Number.isNaN(ts.getTime()) ? null : ts;
+  if (typeof ts === 'number') {
+    const ms = ts < 1e12 ? ts * 1000 : ts;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function getDatePartsBr(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
   const parts = {};
   for (const p of new Intl.DateTimeFormat('en-US', {
     timeZone: APP_TIMEZONE,
@@ -14,7 +29,7 @@ function getDatePartsBr(date = new Date()) {
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
-  }).formatToParts(date)) {
+  }).formatToParts(d)) {
     if (p.type !== 'literal') parts[p.type] = p.value;
   }
   return parts;
@@ -26,12 +41,17 @@ export function getHourBr(date = new Date()) {
 }
 
 export function getCalendarDayKeyBr(date = new Date()) {
-  const { year, month, day } = getDatePartsBr(date);
+  const parts = getDatePartsBr(date);
+  if (!parts) return '';
+  const { year, month, day } = parts;
   return `${year}-${month}-${day}`;
 }
 
 export function isSameCalendarDayBr(a, b) {
-  return getCalendarDayKeyBr(a) === getCalendarDayKeyBr(b);
+  const ka = getCalendarDayKeyBr(a);
+  const kb = getCalendarDayKeyBr(b);
+  if (!ka || !kb) return false;
+  return ka === kb;
 }
 
 export function formatDateBr(date, options = {}) {
@@ -68,7 +88,8 @@ export function formatTemplateTimeBr(date = new Date()) {
 
 /** Rótulo relativo de dia para chat: Hoje, Ontem ou data formatada. */
 export function formatDayLabelBr(ts) {
-  const d = new Date(ts);
+  const d = parseMessageTimestamp(ts);
+  if (!d) return 'Data desconhecida';
   const todayKey = getCalendarDayKeyBr();
   const dayKey = getCalendarDayKeyBr(d);
   if (dayKey === todayKey) return 'Hoje';
