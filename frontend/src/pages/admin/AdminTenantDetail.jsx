@@ -82,7 +82,7 @@ export default function AdminTenantDetail() {
           slug: t.slug,
           active: t.active,
           planSlug: t.plan_slug || 'starter',
-          lifetime: !t.contract_expires_at,
+          lifetime: Boolean(t.contract_id && !t.contract_expires_at),
           expiryDays: 30,
         });
       })
@@ -97,8 +97,15 @@ export default function AdminTenantDetail() {
   const save = async () => {
     setSaving(true);
     try {
-      const payload = { ...form };
-      if (form.lifetime) payload.expiryDays = 0;
+      const payload = {
+        name: form.name,
+        registeredPhone: form.registeredPhone,
+        slug: form.slug,
+        active: form.active,
+        planSlug: form.planSlug,
+        lifetime: form.lifetime,
+        expiryDays: form.lifetime ? 0 : form.expiryDays,
+      };
       await api.patch(`/api/admin/tenants/${id}`, payload);
       setEdit(false);
       load();

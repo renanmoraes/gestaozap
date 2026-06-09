@@ -3,10 +3,11 @@ const { eq, and, inArray, sql } = require('drizzle-orm');
 const { randomUUID } = require('crypto');
 const { getQueueForTenant } = require('../config/queue');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
-const { campaigns, contacts, sendLogs } = require('../db/schema');
+const { campaigns, sendLogs } = require('../db/schema');
 const whatsapp = require('../services/whatsapp.service');
 const { requireWAConnected } = require('../middleware/featureGate');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
+const { fetchEligibleContactsForSend } = require('../utils/contacts-query.util');
 const { getConfigInt } = require('../config/platform');
 const { countActiveDispatches } = require('../services/dispatch.service');
 
@@ -40,6 +41,9 @@ router.post('/', requireWAConnected, async (req, res) => {
     const {
       campaignId,
       contactIds,
+      selectAll = false,
+      filter = {},
+      excludeContactIds = [],
       hourStart = getConfigInt('hour_start_default', 8),
       hourEnd = getConfigInt('hour_end_default', 20),
       ignoreHours = false,
@@ -47,6 +51,12 @@ router.post('/', requireWAConnected, async (req, res) => {
       variables = {},
       category = 'marketing',
     } = req.body;
+
+    const useSelectAll = Boolean(selectAll);
+    const hasExplicitIds = Array.isArray(contactIds) && contactIds.length > 0;
+    if (!useSelectAll && !hasExplicitIds) {
+      return res.status(400).json({ error: 'Informe contactIds ou selectAll: true com filtros.' });
+    }
 
     const [planRow] = await db.execute(sql`
       SELECT p.max_concurrent_sends
@@ -71,24 +81,18 @@ router.post('/', requireWAConnected, async (req, res) => {
       .where(and(eq(campaigns.id, campaignId), eq(campaigns.tenantId, tenantId)));
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
 
-    // Mapeia categoria → coluna consent_*
-    const consentCol = {
-      marketing: contacts.consentMarketing,
-      transactional: contacts.consentTransactional,
-      support: contacts.consentSupport,
-      billing: contacts.consentBilling,
-    }[category] || contacts.consentMarketing;
+    let eligibleContacts = await fetchEligibleContactsForSend(db, tenantId, {
+      contactIds: hasExplicitIds ? contactIds : undefined,
+      selectAll: useSelectAll,
+      filter,
+      excludeContactIds,
+      category,
+    });
 
-    let eligibleContacts = await db.select().from(contacts)
-      .where(and(
-        eq(contacts.tenantId, tenantId),
-        inArray(contacts.id, contactIds),
-        eq(contacts.active, true),
-        eq(contacts.optedOut, false),
-        eq(consentCol, true), // só quem deu consentimento para esta categoria
-      ));
-
-    const blockedCount = contactIds.length - eligibleContacts.length;
+    const requestedCount = useSelectAll
+      ? eligibleContacts.length + (excludeContactIds?.length || 0)
+      : contactIds.length;
+    const blockedCount = Math.max(0, requestedCount - eligibleContacts.length);
     const optedOutCount = blockedCount; // alias para retrocompatibilidade
 
     let skippedDuplicate = 0;

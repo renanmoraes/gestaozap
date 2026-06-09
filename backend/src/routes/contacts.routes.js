@@ -1,44 +1,15 @@
 const router = require('express').Router();
-const { eq, and, or, ilike, inArray, sql } = require('drizzle-orm');
+const { eq, and, inArray, sql } = require('drizzle-orm');
 const { getDb, getPool, DEFAULT_TENANT_ID } = require('../db');
 const { contacts } = require('../db/schema');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { formatStampBr } = require('../utils/timezone.util');
+const { buildListConditions } = require('../utils/contacts-query.util');
 const { requireWAConnected } = require('../middleware/featureGate');
 const whatsapp = require('../services/whatsapp.service');
 
 function getTenantId(req) {
   return (req.tenant && req.tenant.id) || DEFAULT_TENANT_ID;
-}
-
-function buildListConditions(tenantId, query = {}) {
-  const q = String(query.q ?? query.search ?? '').trim();
-  const conditions = [
-    eq(contacts.tenantId, tenantId),
-    eq(contacts.active, true),
-  ];
-
-  if (query.tag) {
-    conditions.push(sql`${contacts.tags} @> ARRAY[${query.tag}]::text[]`);
-  }
-
-  if (q) {
-    const digitsQ = q.replace(/\D/g, '');
-    const orConditions = [ilike(contacts.name, `%${q}%`)];
-    if (digitsQ.length >= 2) {
-      orConditions.push(ilike(contacts.phone, `%${digitsQ}%`));
-    }
-    conditions.push(or(...orConditions));
-  }
-
-  const optedOutMode = String(query.optedOut || 'hide');
-  if (optedOutMode === 'only') {
-    conditions.push(eq(contacts.optedOut, true));
-  } else if (optedOutMode !== 'all') {
-    conditions.push(eq(contacts.optedOut, false));
-  }
-
-  return { conditions, q };
 }
 
 async function fetchContactTags(tenantId) {

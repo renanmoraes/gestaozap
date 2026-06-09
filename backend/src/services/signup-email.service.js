@@ -21,8 +21,12 @@ async function sendSignupReceived(to, name) {
 
 async function sendSignupApproved(to, name, slug, trialDays) {
   const url = `https://${slug}.${domain()}`;
-  await send(to, 'Cadastro aprovado — seu trial começou!',
-    `<p>Olá, ${name}!</p><p>Seu cadastro foi aprovado e você tem <strong>${trialDays} dias de teste grátis</strong>.</p><p>Acesse: <a href="${url}">${url}</a> com seu email e senha cadastrados.</p>`);
+  const lifetime = !trialDays;
+  const subject = lifetime ? 'Cadastro aprovado — acesso liberado!' : 'Cadastro aprovado — seu trial começou!';
+  const body = lifetime
+    ? `<p>Olá, ${name}!</p><p>Seu cadastro foi aprovado com <strong>acesso vitalício</strong>.</p><p>Acesse: <a href="${url}">${url}</a> com seu email e senha cadastrados.</p>`
+    : `<p>Olá, ${name}!</p><p>Seu cadastro foi aprovado e você tem <strong>${trialDays} dias de teste grátis</strong>.</p><p>Acesse: <a href="${url}">${url}</a> com seu email e senha cadastrados.</p>`;
+  await send(to, subject, body);
 }
 
 async function sendSignupRejected(to, name) {

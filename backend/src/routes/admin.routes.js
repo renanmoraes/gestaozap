@@ -15,6 +15,7 @@ const { refreshConfig } = require('../config/platform');
 const { registerProcessorForTenant } = require('../services/queue.service');
 const { getIo } = require('../config/registry');
 const { sendSignupApproved, sendSignupRejected } = require('../services/signup-email.service');
+const { replaceActiveContract } = require('../services/contract.service');
 
 /* ─── Tenants (Clientes) ─────────────────────────────────── */
 
@@ -36,7 +37,13 @@ router.get('/tenants', async (req, res) => {
         co.company_id AS company_id
       FROM tenants t
       LEFT JOIN whatsapp_sessions ws ON ws.tenant_id = t.id
-      LEFT JOIN contracts c ON c.tenant_id = t.id AND c.status = 'active'
+      LEFT JOIN LATERAL (
+        SELECT c2.*
+        FROM contracts c2
+        WHERE c2.tenant_id = t.id AND c2.status = 'active'
+        ORDER BY c2.created_at DESC
+        LIMIT 1
+      ) c ON true
       LEFT JOIN plans p ON p.id = c.plan_id
       LEFT JOIN companies co ON co.tenant_id = t.id
       ${whereClause}
@@ -51,7 +58,7 @@ router.get('/tenants', async (req, res) => {
 
 /* ─── Aprovação de pré-cadastros (Fase 1) ───────────────── */
 
-// POST /api/admin/tenants/:id/approve  body: { slug?, trialDays? }
+// POST /api/admin/tenants/:id/approve  body: { slug?, planSlug?, lifetime?, trialDays?, expiryDays? }
 router.post('/tenants/:id/approve', async (req, res) => {
   try {
     const db = getDb();
@@ -59,25 +66,39 @@ router.post('/tenants/:id/approve', async (req, res) => {
     if (!tenant) return res.status(404).json({ error: 'Tenant não encontrado' });
     if (tenant.approvalStatus !== 'pending') return res.status(409).json({ error: 'Tenant não está pendente' });
 
+    const lifetime = Boolean(req.body?.lifetime);
     const cfg = await db.execute(sql`SELECT value FROM platform_config WHERE key='trial_days' LIMIT 1`);
-    const trialDays = Number(req.body?.trialDays) || Number(cfg.rows?.[0]?.value) || 7;
+    const defaultTrialDays = Number(cfg.rows?.[0]?.value) || 7;
+    const trialDays = lifetime ? 0 : (Number(req.body?.trialDays) || Number(req.body?.expiryDays) || defaultTrialDays);
 
-    const [plan] = await db.select().from(plans).where(eq(plans.active, true)).orderBy(plans.priceBrl).limit(1);
+    let plan;
+    if (req.body?.planSlug) {
+      [plan] = await db.select().from(plans).where(eq(plans.slug, req.body.planSlug));
+    }
+    if (!plan) {
+      [plan] = await db.select().from(plans).where(eq(plans.active, true)).orderBy(plans.priceBrl).limit(1);
+    }
     if (!plan) return res.status(400).json({ error: 'Nenhum plano ativo configurado' });
 
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
     const newSlug = (req.body?.slug || tenant.slug).toLowerCase();
+    let contractResult;
 
     await db.transaction(async (tx) => {
       await tx.update(tenants).set({
         approvalStatus: 'approved', active: true, slug: newSlug, updatedAt: now,
       }).where(eq(tenants.id, tenant.id));
-      await tx.insert(contracts).values({
-        tenantId: tenant.id, planId: plan.id, status: 'active',
-        startedAt: now, expiresAt, isTrial: true,
+
+      contractResult = await replaceActiveContract(tx, tenant.id, {
+        planId: plan.id,
+        lifetime,
+        trialDays,
+        isTrial: !lifetime,
+        now,
       });
     });
+
+    const expiresAt = contractResult.expiresAt;
 
     const io = getIo();
     if (io) registerProcessorForTenant(tenant.id, io);
@@ -88,10 +109,10 @@ router.post('/tenants/:id/approve', async (req, res) => {
       JOIN companies c ON c.id = uc.company_id
       WHERE c.tenant_id = ${tenant.id} LIMIT 1`);
     if (ownerEmail.rows?.[0]?.email) {
-      sendSignupApproved(ownerEmail.rows[0].email, tenant.name, newSlug, trialDays).catch(() => {});
+      sendSignupApproved(ownerEmail.rows[0].email, tenant.name, newSlug, lifetime ? 0 : trialDays).catch(() => {});
     }
 
-    res.json({ ok: true, slug: newSlug, trialDays, expiresAt });
+    res.json({ ok: true, slug: newSlug, lifetime, trialDays: lifetime ? null : trialDays, expiresAt });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Slug já em uso' });
     console.error('[admin approve]', err);
@@ -230,26 +251,18 @@ router.patch('/tenants/:id', async (req, res) => {
 
     if (!tenant) return res.status(404).json({ error: 'Cliente não encontrado' });
 
-    // Trocar plano: encerra contrato atual + cria novo (mantém histórico)
-    if (planSlug) {
-      const [plan] = await db.select().from(plans).where(eq(plans.slug, planSlug));
+    const contractUpdateRequested = planSlug != null || lifetime != null || expiryDays != null;
+    if (contractUpdateRequested) {
+      const planSlugResolved = planSlug || 'starter';
+      const [plan] = await db.select().from(plans).where(eq(plans.slug, planSlugResolved));
       if (plan) {
         const now = new Date();
-        // Encerra contrato ativo anterior (se houver)
-        await db.update(contracts)
-          .set({ status: 'cancelled', updatedAt: now })
-          .where(and(eq(contracts.tenantId, tenant.id), eq(contracts.status, 'active')));
-
-        // Cria novo contrato
-        const expiresAt = lifetime || expiryDays === 0
-          ? null
-          : new Date(now.getTime() + ((expiryDays || 30) * 24 * 60 * 60 * 1000));
-        await db.insert(contracts).values({
-          tenantId: tenant.id,
+        await replaceActiveContract(db, tenant.id, {
           planId: plan.id,
-          status: 'active',
-          startedAt: now,
-          expiresAt,
+          lifetime: Boolean(lifetime),
+          expiryDays,
+          isTrial: false,
+          now,
         });
       }
     }
@@ -283,7 +296,13 @@ router.get('/tenants/:id', async (req, res) => {
         p.price_brl, p.messages_per_month
       FROM tenants t
       LEFT JOIN whatsapp_sessions ws ON ws.tenant_id = t.id
-      LEFT JOIN contracts c ON c.tenant_id = t.id AND c.status = 'active'
+      LEFT JOIN LATERAL (
+        SELECT c2.*
+        FROM contracts c2
+        WHERE c2.tenant_id = t.id AND c2.status = 'active'
+        ORDER BY c2.created_at DESC
+        LIMIT 1
+      ) c ON true
       LEFT JOIN plans p ON p.id = c.plan_id
       LEFT JOIN affiliates af ON af.id = t.affiliate_id
       WHERE t.id = ${tenantId}

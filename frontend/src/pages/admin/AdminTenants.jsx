@@ -7,13 +7,19 @@ import api from '../../api';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
 import { formatDateBr } from '../../utils/timezone';
 
+const PLANS = ['starter', 'pro', 'business'];
+const PLAN_LABELS = { starter: 'Starter', pro: 'Pro', business: 'Business' };
+const DEFAULT_APPROVE = { planSlug: 'starter', lifetime: false, trialDays: 7 };
+
 function PendingApprovals({ items, onChange }) {
   const [busy, setBusy] = useState(null);
+  const [approving, setApproving] = useState(null);
+  const [approveForm, setApproveForm] = useState(DEFAULT_APPROVE);
 
-  const act = async (id, action) => {
+  const act = async (id, action, body = {}) => {
     setBusy(`${id}:${action}`);
     try {
-      await api.post(`/api/admin/tenants/${id}/${action}`, {});
+      await api.post(`/api/admin/tenants/${id}/${action}`, body);
       onChange();
     } catch (err) {
       alert(err.response?.data?.error || 'Erro na operação');
@@ -22,57 +28,118 @@ function PendingApprovals({ items, onChange }) {
     }
   };
 
+  const openApprove = (tenant) => {
+    setApproving(tenant);
+    setApproveForm(DEFAULT_APPROVE);
+  };
+
+  const confirmApprove = async () => {
+    if (!approving) return;
+    const payload = {
+      planSlug: approveForm.planSlug,
+      lifetime: approveForm.lifetime,
+      ...(approveForm.lifetime ? {} : { trialDays: approveForm.trialDays }),
+    };
+    await act(approving.id, 'approve', payload);
+    setApproving(null);
+  };
+
   if (!items.length) return null;
 
   return (
-    <div className="card p-5 border-amber-200 bg-amber-50/40">
-      <div className="flex items-center gap-2 mb-4">
-        <Clock className="w-4 h-4 text-amber-600" />
-        <h3 className="text-sm font-semibold text-slate-900">Aprovações pendentes</h3>
-        <span className="badge-blue text-xs">{items.length}</span>
-      </div>
-      <div className="space-y-2">
-        {items.map((t) => (
-          <div key={t.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white border border-slate-200">
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-slate-900 truncate">
-                {t.name} <span className="text-xs text-slate-400 font-mono">/{t.slug}</span>
+    <>
+      <div className="card p-5 border-amber-200 bg-amber-50/40">
+        <div className="flex items-center gap-2 mb-4">
+          <Clock className="w-4 h-4 text-amber-600" />
+          <h3 className="text-sm font-semibold text-slate-900">Aprovações pendentes</h3>
+          <span className="badge-blue text-xs">{items.length}</span>
+        </div>
+        <div className="space-y-2">
+          {items.map((t) => (
+            <div key={t.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white border border-slate-200">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-900 truncate">
+                  {t.name} <span className="text-xs text-slate-400 font-mono">/{t.slug}</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-3">
+                  <span className="uppercase">{t.document_type}: {t.document || '—'}</span>
+                  <span className="font-mono">{formatPhone(t.registered_phone)}</span>
+                  {t.affiliate_code && (
+                    <span className="inline-flex items-center gap-1 text-brand-600">
+                      <Tag className="w-3 h-3" />{t.affiliate_code}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-3">
-                <span className="uppercase">{t.document_type}: {t.document || '—'}</span>
-                <span className="font-mono">{formatPhone(t.registered_phone)}</span>
-                {t.affiliate_code && (
-                  <span className="inline-flex items-center gap-1 text-brand-600">
-                    <Tag className="w-3 h-3" />{t.affiliate_code}
-                  </span>
-                )}
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => openApprove(t)}
+                  disabled={busy === `${t.id}:approve`}
+                  className="btn-primary text-xs flex items-center gap-1 px-3 py-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />Aprovar
+                </button>
+                <button
+                  onClick={() => act(t.id, 'reject')}
+                  disabled={busy === `${t.id}:reject`}
+                  className="btn-secondary text-xs flex items-center gap-1 px-3 py-1.5"
+                >
+                  <X className="w-3.5 h-3.5" />Recusar
+                </button>
               </div>
             </div>
-            <div className="flex gap-2 shrink-0">
-              <button
-                onClick={() => act(t.id, 'approve')}
-                disabled={busy === `${t.id}:approve`}
-                className="btn-primary text-xs flex items-center gap-1 px-3 py-1.5"
-              >
-                <Check className="w-3.5 h-3.5" />Aprovar
+          ))}
+        </div>
+      </div>
+
+      {approving && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40">
+          <div className="card w-full max-w-md p-5 space-y-4 shadow-xl">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Aprovar cadastro</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {approving.name} · <span className="font-mono">/{approving.slug}</span>
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Plano inicial</label>
+              <select className="input" value={approveForm.planSlug}
+                onChange={(e) => setApproveForm((f) => ({ ...f, planSlug: e.target.value }))}>
+                {PLANS.map((p) => <option key={p} value={p}>{PLAN_LABELS[p]}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={approveForm.lifetime}
+                  onChange={(e) => setApproveForm((f) => ({ ...f, lifetime: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300 text-brand-600" />
+                <span className="text-sm font-medium text-slate-800">Vitalício (sem vencimento)</span>
+              </label>
+              {!approveForm.lifetime && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Dias de trial</label>
+                  <input type="number" className="input" min="1" value={approveForm.trialDays}
+                    onChange={(e) => setApproveForm((f) => ({ ...f, trialDays: parseInt(e.target.value, 10) || 7 }))} />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={confirmApprove} disabled={!!busy} className="btn-primary flex-1 justify-center">
+                Confirmar aprovação
               </button>
-              <button
-                onClick={() => act(t.id, 'reject')}
-                disabled={busy === `${t.id}:reject`}
-                className="btn-secondary text-xs flex items-center gap-1 px-3 py-1.5"
-              >
-                <X className="w-3.5 h-3.5" />Recusar
+              <button onClick={() => setApproving(null)} className="btn-secondary flex-1 justify-center">
+                Cancelar
               </button>
             </div>
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }
-
-const PLANS = ['starter', 'pro', 'business'];
-const PLAN_LABELS = { starter: 'Starter', pro: 'Pro', business: 'Business' };
 
 function TenantRow({ tenant }) {
   const navigate = useNavigate();

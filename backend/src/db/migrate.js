@@ -302,6 +302,21 @@ async function runMigrations(pool) {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_contacts_tags ON contacts USING gin (tags);`);
 
     // Integridade: no máximo 1 contrato ativo por tenant
+    await client.query(`
+      UPDATE contracts c
+      SET status = 'cancelled', updated_at = now()
+      FROM (
+        SELECT id
+        FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY created_at DESC) AS rn
+          FROM contracts
+          WHERE status = 'active'
+        ) ranked
+        WHERE rn > 1
+      ) dup
+      WHERE c.id = dup.id;
+    `).catch(() => {});
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_active_contract_per_tenant ON contracts(tenant_id) WHERE status = 'active';`);
 
     // Cota / excedente / concorrência por plano
