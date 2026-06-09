@@ -39,6 +39,17 @@ export default function Landing() {
       a.removeAttribute('rel');
     });
 
+    // Links legais do rodapé → páginas dedicadas
+    const legalMap = {
+      'Termos de uso': '/termos',
+      'Política de privacidade': '/privacidade',
+      'LGPD': '/lgpd',
+    };
+    root.querySelectorAll('.foot-col a[href="#"]').forEach((a) => {
+      const target = legalMap[a.textContent.trim()];
+      if (target) a.setAttribute('href', target);
+    });
+
     const cleanup = initLandingEffects(root);
     return cleanup;
   }, []);

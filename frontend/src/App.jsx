@@ -31,6 +31,10 @@ import AdminStorage from './pages/admin/AdminStorage';
 
 import Register from './pages/Register';
 
+import TermosDeUso from './pages/legal/TermosDeUso';
+import PoliticaPrivacidade from './pages/legal/PoliticaPrivacidade';
+import LGPD from './pages/legal/LGPD';
+
 /* ─── Detecção de contexto ────────────────────────────────── */
 
 function isLocalHost() {
@@ -266,6 +270,9 @@ function MarketingSite() {
       <Route path="/" element={<Landing />} />
       <Route path="/admin/*" element={<AdminApp basePath="/admin" />} />
       <Route path="/registrar" element={<Register />} />
+      <Route path="/termos" element={<TermosDeUso />} />
+      <Route path="/privacidade" element={<PoliticaPrivacidade />} />
+      <Route path="/lgpd" element={<LGPD />} />
       <Route path="/app/*" element={<TenantApp basePath="/app" />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -279,6 +279,13 @@ export default function Register() {
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
               {submitting ? 'Enviando cadastro…' : 'Criar minha conta'}
             </button>
+
+            <p className="text-xs text-center text-slate-400 leading-relaxed">
+              Ao criar a conta, você concorda com os{' '}
+              <a href="/termos" target="_blank" rel="noopener noreferrer" className="text-brand-600 underline">Termos de Uso</a>{' '}
+              e a{' '}
+              <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-brand-600 underline">Política de Privacidade</a>.
+            </p>
           </form>
         </div>
 
