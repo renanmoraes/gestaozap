@@ -49,11 +49,11 @@ router.post('/login', tenantResolver, async (req, res) => {
   try {
     const { companyId, email, password } = req.body || {};
 
-    if (companyId === undefined || companyId === null || String(companyId).trim() === '' || !email || !password) {
-      return res.status(400).json({ error: 'Identificador, email e senha são obrigatórios' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
     }
 
-    const result = await login(String(companyId).trim(), email, password, {
+    const result = await login(companyId ?? '', email, password, {
       tenantId: req.tenant?.id || null,
       isAdminHost: isAdminHost(req) || Boolean(req.isAdminHost),
     });

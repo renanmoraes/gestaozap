@@ -35,10 +35,9 @@ async function tenantResolver(req, res, next) {
     if (!tenant) {
       return res.status(404).json({ error: 'Conta não encontrada' });
     }
-    if (!tenant.active) {
-      return res.status(403).json({ error: 'Conta inativa ou plano expirado', code: 'TENANT_INACTIVE' });
-    }
-
+    // Não bloqueia tenant inativo aqui: o gate de rotas de negócio (requireTenant,
+    // via tenantAccessState) decide o acesso e o login precisa passar para contas
+    // pending/trial-expirado verem a tela informativa correta.
     req.tenant = tenant;
     next();
   } catch (err) {

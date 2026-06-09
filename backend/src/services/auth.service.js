@@ -52,25 +52,28 @@ async function login(companyId, email, password, context = {}) {
   try {
     const db = getDb();
     const normalizedId = String(companyId ?? '').trim();
-    if (!normalizedId) {
-      return { valid: false, error: 'Identificador da empresa inválido' };
-    }
+    let company;
 
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(eq(companies.companyId, normalizedId));
+    if (normalizedId === '0') {
+      // Admin: sentinela inalterada
+      [company] = await db.select().from(companies).where(eq(companies.companyId, '0'));
+    } else if (normalizedId) {
+      // companyId explícito (compatibilidade)
+      [company] = await db.select().from(companies).where(eq(companies.companyId, normalizedId));
+    } else if (context.tenantId) {
+      // Cliente via subdomínio: resolve a company pelo tenant (relação 1:1)
+      [company] = await db.select().from(companies).where(eq(companies.tenantId, context.tenantId));
+    } else {
+      return { valid: false, error: 'Acesse pelo subdomínio da sua empresa' };
+    }
 
     if (!company || !company.active) {
       return { valid: false, error: 'Empresa não encontrada ou inativa' };
     }
 
-    // Cliente: tenant do subdomínio deve bater com company.tenantId
-    if (normalizedId !== '0') {
-      if (!context.tenantId) {
-        return { valid: false, error: 'Acesse pelo subdomínio da sua empresa' };
-      }
-      if (company.tenantId !== context.tenantId) {
+    // Cliente: company precisa pertencer ao tenant do subdomínio
+    if (company.companyId !== '0') {
+      if (!context.tenantId || company.tenantId !== context.tenantId) {
         return { valid: false, error: 'Email ou senha incorretos' };
       }
     } else if (!context.isAdminHost && process.env.NODE_ENV === 'production') {
