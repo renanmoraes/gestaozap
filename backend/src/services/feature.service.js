@@ -70,7 +70,10 @@ async function listTenantFeatures(db, tenantId) {
     .where(eq(tenantFeatures.tenantId, tenantId))
     .orderBy(desc(tenantFeatures.createdAt));
 
-  const subByFeature = new Map(subs.map((s) => [s.featureId, s]));
+  const subByFeature = new Map();
+  for (const s of subs) {
+    if (!subByFeature.has(s.featureId)) subByFeature.set(s.featureId, s);
+  }
   const now = new Date();
 
   const rows = await Promise.all(catalog.map(async (f) => {

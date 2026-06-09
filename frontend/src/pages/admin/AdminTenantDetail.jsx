@@ -9,7 +9,7 @@ import api from '../../api';
 import { dialog } from '../../utils/dialog';
 import { apiErrorMessage, MSG } from '../../utils/messages';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
-import { formatDateBr, formatDateTimeBr } from '../../utils/timezone';
+import { formatDateBr, formatDateTimeBr, getCalendarDayKeyBr, toDateInputValueBr, addCalendarDaysBr } from '../../utils/timezone';
 
 const PLANS = ['starter', 'pro', 'business'];
 
@@ -701,16 +701,13 @@ export default function AdminTenantDetail() {
 
 /* ──────────────────────── Features Panel ──────────────────────── */
 function defaultAccessUntilDate() {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
-  return d.toISOString().slice(0, 10);
+  return addCalendarDaysBr(getCalendarDayKeyBr(), 30);
 }
 
 function toDateInputValue(iso) {
   if (!iso) return defaultAccessUntilDate();
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return defaultAccessUntilDate();
-  return d.toISOString().slice(0, 10);
+  const key = toDateInputValueBr(iso);
+  return key || defaultAccessUntilDate();
 }
 
 function FeaturesPanel({ tenantId, contractExpiresAt }) {
@@ -920,7 +917,7 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
                 type="date"
                 className="input w-full"
                 value={enableForm.expiresAt}
-                min={new Date().toISOString().slice(0, 10)}
+                min={getCalendarDayKeyBr()}
                 onChange={(e) => setEnableForm((prev) => ({ ...prev, expiresAt: e.target.value }))}
               />
               <p className="text-xs text-slate-500 mt-1">

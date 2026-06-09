@@ -47,6 +47,21 @@ export function getCalendarDayKeyBr(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+/** YYYY-MM-DD para input[type=date] no calendário BR. */
+export function toDateInputValueBr(date) {
+  const key = getCalendarDayKeyBr(date);
+  return key || '';
+}
+
+/** Soma dias a uma chave YYYY-MM-DD (calendário BR). */
+export function addCalendarDaysBr(dayKey, days) {
+  if (!dayKey) return '';
+  const anchor = new Date(`${dayKey}T12:00:00-03:00`);
+  if (Number.isNaN(anchor.getTime())) return dayKey;
+  anchor.setUTCDate(anchor.getUTCDate() + days);
+  return getCalendarDayKeyBr(anchor);
+}
+
 export function isSameCalendarDayBr(a, b) {
   const ka = getCalendarDayKeyBr(a);
   const kb = getCalendarDayKeyBr(b);
