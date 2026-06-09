@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { io } from 'socket.io-client';
 import api from '../api';
 import ChangePassword from '../pages/ChangePassword';
+import SignupPending from '../pages/SignupPending';
+
+const BLOCKING_STATES = ['pending_approval', 'rejected', 'trial_expired', 'no_contract', 'contract_expired'];
 
 const TenantContext = createContext(null);
 
@@ -37,6 +40,7 @@ export function TenantProvider({ children }) {
   const [mustChangePwd, setMustChangePwd] = useState(false);
   const [waStatus, setWaStatus] = useState('disconnected');
   const [wrongPhone, setWrongPhone] = useState(null);
+  const [accessState, setAccessState] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadSession = useCallback(() => {
@@ -63,7 +67,12 @@ export function TenantProvider({ children }) {
 
   useEffect(() => {
     if (!tenant?.tenantId) return;
-    api.get('/api/session').then((r) => setWaStatus(r.data.status)).catch(() => {});
+    api.get('/api/session')
+      .then((r) => { setWaStatus(r.data.status); setAccessState('active'); })
+      .catch((err) => {
+        const st = err.response?.status === 403 ? err.response?.data?.state : null;
+        if (st) setAccessState(st);
+      });
   }, [tenant]);
 
   useEffect(() => {
@@ -116,6 +125,11 @@ export function TenantProvider({ children }) {
 
   if (mustChangePwd && authToken) {
     return <ChangePassword onSuccess={onPasswordChanged} />;
+  }
+
+  // Conta sem acesso ao produto (aprovação pendente, trial expirado, etc.)
+  if (authToken && tenant && BLOCKING_STATES.includes(accessState)) {
+    return <SignupPending state={accessState} onLogout={logout} />;
   }
 
   return (

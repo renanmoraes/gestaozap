@@ -12,7 +12,7 @@ export default function Login() {
   const [showTerms, setShowTerms] = useState(false);
   const [showChangePwd, setShowChangePwd] = useState(false);
   const [pendingData, setPendingData] = useState(null);
-  const [form, setForm] = useState({ companyId: '', email: '', password: '' });
+  const [form, setForm] = useState({ email: '', password: '' });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -20,7 +20,6 @@ export default function Login() {
     setError(null);
     try {
       const { data } = await api.post('/api/auth/login', {
-        companyId: form.companyId.trim(),
         email: form.email,
         password: form.password,
       });
@@ -97,7 +96,7 @@ export default function Login() {
         <div className="card p-7 shadow-sm">
           <div className="text-center mb-6">
             <h1 className="text-lg font-semibold text-slate-900">Entrar</h1>
-            <p className="text-sm text-slate-500 mt-1">Use os dados enviados no seu email de boas-vindas</p>
+            <p className="text-sm text-slate-500 mt-1">Entre com seu email e senha</p>
           </div>
 
           {error && (
@@ -108,20 +107,6 @@ export default function Login() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">Identificador da empresa</label>
-              <input
-                type="text"
-                className="input font-mono"
-                placeholder="Ex: A1B2C3D4E5"
-                value={form.companyId}
-                onChange={(e) => setForm({ ...form, companyId: e.target.value })}
-                required
-                autoFocus
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">Email</label>
               <input
