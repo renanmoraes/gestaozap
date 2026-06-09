@@ -14,6 +14,7 @@ async function deactivateExpiredContracts() {
   const expired = await db.select({
     contractId: contracts.id,
     tenantId: contracts.tenantId,
+    isTrial: contracts.isTrial,
   }).from(contracts)
     .where(and(
       eq(contracts.status, 'active'),
@@ -23,18 +24,27 @@ async function deactivateExpiredContracts() {
 
   if (!expired.length) {
     console.log('[cron] nenhum contrato expirado');
-    return { deactivated: 0 };
+    return { deactivated: 0, trialsExpired: 0 };
   }
 
   let deactivated = 0;
-  for (const { contractId, tenantId } of expired) {
+  let trialsExpired = 0;
+  for (const { contractId, tenantId, isTrial } of expired) {
     try {
-      // Marca o contrato como expirado
+      // Marca o contrato como expirado (bloqueia envios pela regra de acesso)
       await db.update(contracts)
         .set({ status: 'expired', updatedAt: now })
         .where(eq(contracts.id, contractId));
 
-      // Desativa o tenant
+      if (isTrial) {
+        // Trial: NÃO desativa o tenant — mantém a conta acessível para conversão/pagamento.
+        // (Fase 2: gerar cobrança Asaas + enviar link de pagamento aqui.)
+        trialsExpired++;
+        console.log(`[cron] trial ${contractId} expirou — tenant ${tenantId} mantido para conversão`);
+        continue;
+      }
+
+      // Contrato pago vencido: comportamento atual (desativa tenant + WA)
       await db.update(tenants)
         .set({ active: false, updatedAt: now })
         .where(eq(tenants.id, tenantId));
@@ -54,12 +64,12 @@ async function deactivateExpiredContracts() {
       deactivated++;
       console.log(`[cron] tenant ${tenantId} desativado — contrato ${contractId} expirou`);
     } catch (err) {
-      console.error(`[cron] erro ao desativar tenant ${tenantId}:`, err.message);
+      console.error(`[cron] erro ao processar contrato ${contractId} (tenant ${tenantId}):`, err.message);
     }
   }
 
-  console.log(`[cron] ${deactivated} tenant(s) desativado(s)`);
-  return { deactivated };
+  console.log(`[cron] ${deactivated} tenant(s) desativado(s), ${trialsExpired} trial(s) expirado(s)`);
+  return { deactivated, trialsExpired };
 }
 
 function msUntilMidnight() {
