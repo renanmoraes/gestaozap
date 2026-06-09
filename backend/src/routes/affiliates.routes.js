@@ -180,94 +180,10 @@ router.get('/validate/:code', async (req, res) => {
   }
 });
 
-/* ─── Público: auto-cadastro via link de afiliado ──────── */
+/* ─── Público: auto-cadastro aposentado (Fase 1) ──────── */
 
-// POST /api/affiliates/register — cliente se cadastra via link
-router.post('/register', async (req, res) => {
-  try {
-    const db = getDb();
-    const { affiliateCode, slug, name, registeredPhone, planSlug } = req.body;
-
-    if (!slug || !name || !registeredPhone || !planSlug) {
-      return res.status(400).json({ error: 'slug, name, registeredPhone e planSlug são obrigatórios' });
-    }
-
-    // Valida o plano
-    const [plan] = await db.select().from(plans)
-      .where(and(eq(plans.slug, planSlug), eq(plans.active, true)));
-    if (!plan) return res.status(404).json({ error: 'Plano não encontrado' });
-
-    // Valida o afiliado (se fornecido)
-    let affiliate = null;
-    if (affiliateCode) {
-      [affiliate] = await db.select().from(affiliates)
-        .where(and(eq(affiliates.code, affiliateCode.toUpperCase()), eq(affiliates.active, true)));
-      if (!affiliate) return res.status(400).json({ error: 'Código de afiliado inválido' });
-    }
-
-    // Cria o tenant
-    const [tenant] = await db.insert(tenants).values({
-      slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-      name,
-      registeredPhone,
-      active: true,
-      affiliateCode: affiliate?.code || null,
-      affiliateId: affiliate?.id || null,
-    }).returning();
-
-    // Sessão WA inicial
-    await db.insert(whatsappSessions).values({ tenantId: tenant.id, status: 'disconnected' });
-
-    // Calcula desconto e cria contrato (30 dias padrão — admin pode alterar)
-    const { original, discount, final, commission } = calcValues(
-      plan.priceBrl, affiliate?.discountPct ?? 0, affiliate?.commissionPct ?? 0,
-    );
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-    const [contract] = await db.insert(contracts).values({
-      tenantId: tenant.id,
-      planId:   plan.id,
-      status:   'active',
-      startedAt: now,
-      expiresAt,
-    }).returning();
-
-    // Registra referência do afiliado
-    if (affiliate) {
-      await db.insert(affiliateReferrals).values({
-        affiliateId:      affiliate.id,
-        tenantId:         tenant.id,
-        contractId:       contract.id,
-        planSlug:         plan.slug,
-        originalPriceBrl: String(original),
-        discountBrl:      String(discount),
-        finalPriceBrl:    String(final),
-        commissionBrl:    String(commission),
-        commissionPct:    String(affiliate.commissionPct),
-        discountPct:      String(affiliate.discountPct),
-        status:           'pending',
-      });
-    }
-
-    // Registra processor de fila para o novo tenant
-    const io = getIo();
-    if (io) registerProcessorForTenant(tenant.id, io);
-
-    res.status(201).json({
-      tenantId: tenant.id,
-      slug:     tenant.slug,
-      plan:     plan.name,
-      originalPriceBrl: original,
-      discountBrl:      discount,
-      finalPriceBrl:    final,
-      affiliateCode:    affiliate?.code || null,
-    });
-  } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'Slug já está em uso — escolha outro' });
-    console.error('affiliates register:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+// POST /api/affiliates/register — DESCONTINUADO: use POST /api/signup
+// (pré-cadastro com aprovação do admin; não cria trial sem aprovação).
+router.post('/register', (req, res) => res.status(410).json({ error: 'Endpoint descontinuado. Use /api/signup.' }));
 
 module.exports = router;

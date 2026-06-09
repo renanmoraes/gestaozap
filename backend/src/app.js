@@ -72,6 +72,9 @@ app.use('/api/admin', requireAdmin, adminRoutes);
 // Rotas de auth (públicas por design — é onde o token é criado)
 app.use('/api/auth', require('./routes/auth.routes'));
 
+// Pré-cadastro self-service (público) — cria conta 'pending' p/ aprovação do admin
+app.use('/api/signup', require('./routes/signup.routes'));
+
 // Rotas de negócio: tenantResolver resolve o tenant + authGuard verifica token (quando AUTH_REQUIRED)
 app.use('/api/session', tenantResolver, authGuard, require('./routes/session.routes'));
 app.use('/api/contacts', tenantResolver, authGuard, require('./routes/contacts.routes'));
