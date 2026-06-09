@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserCircle, Upload, Trash2, Save, Loader2, KeyRound, ExternalLink, MapPin } from 'lucide-react';
+import {
+  UserCircle, Upload, Trash2, Save, Loader2, KeyRound, ExternalLink,
+  MapPin, Shield, Lock, Sparkles, Building2, X,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import { dialog } from '../utils/dialog';
@@ -8,6 +11,13 @@ import { formatPhone } from '../utils/phone';
 import { resolveCampaignImageUrl } from '../utils/upload';
 import { useTenant } from '../context/TenantContext';
 import BusinessHoursEditor from '../components/profile/BusinessHoursEditor';
+import './profile/profile.css';
+
+const TABS = [
+  { id: 'identity', label: 'Identidade', icon: Building2 },
+  { id: 'security', label: 'Segurança', icon: Shield },
+  { id: 'vitrine', label: 'Vitrine', icon: Sparkles },
+];
 
 const AVAILABILITY_OPTIONS = [
   { value: 'open', label: 'Aberto (segue horário)' },
@@ -24,14 +34,35 @@ function vitrineUrlFromSlug(slug) {
   return `https://${slug}.gestaozap.digital/promocao-do-dia`;
 }
 
+function maskEmail(email) {
+  if (!email || !email.includes('@')) return email || '—';
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) return `${local[0]}••@${domain}`;
+  return `${local.slice(0, 2)}•••@${domain}`;
+}
+
+/** Senha só existe em memória no momento do submit — nunca vem da API. */
+function useEphemeralPassword() {
+  const ref = useRef('');
+  const set = (v) => { ref.current = v; };
+  const get = () => ref.current;
+  const clear = () => { ref.current = ''; };
+  return { set, get, clear };
+}
+
 export default function Profile() {
   const { reloadSession } = useTenant();
   const fileRef = useRef(null);
+  const emailPassword = useEphemeralPassword();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [tab, setTab] = useState('identity');
   const [form, setForm] = useState(null);
-  const [emailForm, setEmailForm] = useState({ email: '', currentPassword: '' });
+  const [loginEmail, setLoginEmail] = useState('');
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailPwdKey, setEmailPwdKey] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -44,7 +75,8 @@ export default function Profile() {
         registeredPhone: res.data.registeredPhone || '',
         profile: res.data.profile || {},
       });
-      setEmailForm({ email: res.data.email || '', currentPassword: '' });
+      setLoginEmail(res.data.email || '');
+      setNewEmail(res.data.email || '');
     } catch (err) {
       dialog.toast.error(apiErrorMessage(err));
     } finally {
@@ -52,7 +84,10 @@ export default function Profile() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    return () => emailPassword.clear();
+  }, []);
 
   const setProfileField = (path, value) => {
     setForm((prev) => {
@@ -84,18 +119,32 @@ export default function Profile() {
     }
   };
 
+  const cancelEmailEdit = () => {
+    setEmailEditing(false);
+    setNewEmail(loginEmail);
+    emailPassword.clear();
+    setEmailPwdKey((k) => k + 1);
+  };
+
   const saveEmail = async () => {
-    if (!emailForm.currentPassword) {
-      dialog.toast.error('Informe a senha atual para alterar o email');
+    const pwd = emailPassword.get();
+    if (!pwd) {
+      dialog.toast.error('Digite sua senha atual para confirmar');
       return;
     }
     setSaving(true);
     try {
-      await api.patch('/api/tenant/profile/email', emailForm);
+      await api.patch('/api/tenant/profile/email', {
+        email: newEmail.trim(),
+        currentPassword: pwd,
+      });
+      emailPassword.clear();
+      setEmailEditing(false);
+      setLoginEmail(newEmail.trim().toLowerCase());
       dialog.toast.success('Email atualizado');
-      setEmailForm((f) => ({ ...f, currentPassword: '' }));
-      load();
     } catch (err) {
+      emailPassword.clear();
+      setEmailPwdKey((k) => k + 1);
       dialog.toast.error(apiErrorMessage(err));
     } finally {
       setSaving(false);
@@ -150,210 +199,279 @@ export default function Profile() {
   const routePrefix = window.location.pathname.startsWith('/app') ? '/app' : '';
 
   return (
-    <div className="page-content">
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="page-header !px-0 !pt-0">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-            <UserCircle className="w-5 h-5 text-brand-600" />
-            Perfil
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Identidade da empresa e dados da vitrine de promoções</p>
-        </div>
-      </div>
-
-      <section className="card p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-900">Identidade</h2>
-
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="w-20 h-20 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+    <div className="page-content profile-page">
+      <div className="profile-shell">
+        <header className="profile-hero">
+          <div className="profile-hero-logo">
             {logoSrc ? (
-              <img src={logoSrc} alt="" className="w-full h-full object-contain" />
+              <img src={logoSrc} alt="" />
             ) : (
-              <UserCircle className="w-10 h-10 text-slate-300" />
+              <UserCircle className="w-10 h-10 text-stone-500" />
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onLogoPick} />
-            <button type="button" disabled={uploadingLogo} onClick={() => fileRef.current?.click()} className="btn btn-secondary text-xs">
-              {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-              Enviar logo
+          <div>
+            <h1>{form.name || 'Sua empresa'}</h1>
+            <span className="profile-hero-slug">{form.slug}</span>
+            <p className="profile-hero-meta">{vitrineUrl}</p>
+          </div>
+        </header>
+
+        <nav className="profile-tabs" aria-label="Seções do perfil">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={`profile-tab ${tab === id ? 'profile-tab--active' : ''}`}
+              onClick={() => setTab(id)}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+              </span>
             </button>
-            {form.logoUrl && (
-              <button type="button" onClick={removeLogo} className="btn btn-secondary text-xs text-red-600">
-                <Trash2 className="w-3.5 h-3.5" />
-                Remover
-              </button>
-            )}
-          </div>
-        </div>
-        <p className="text-xs text-slate-500">JPG, PNG ou WebP · até 2 MB</p>
+          ))}
+        </nav>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Nome da empresa</label>
-          <input
-            className="input w-full"
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-          />
-        </div>
+        {tab === 'identity' && (
+          <section className="profile-panel">
+            <h2 className="profile-panel-title">Marca e presença</h2>
 
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Link (slug)</label>
-          <input className="input w-full bg-slate-50 text-slate-500" value={form.slug} disabled readOnly />
-          <p className="text-xs text-slate-500 mt-1">O slug não pode ser alterado aqui.</p>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Vitrine pública</label>
-          <input className="input w-full bg-slate-50 text-slate-500 text-sm" value={vitrineUrl} disabled readOnly />
-        </div>
-      </section>
-
-      <section className="card p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-900">Acesso</h2>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Email de login</label>
-          <input
-            type="email"
-            className="input w-full"
-            value={emailForm.email}
-            onChange={(e) => setEmailForm((f) => ({ ...f, email: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Senha atual (para confirmar email)</label>
-          <input
-            type="password"
-            className="input w-full"
-            value={emailForm.currentPassword}
-            onChange={(e) => setEmailForm((f) => ({ ...f, currentPassword: e.target.value }))}
-            autoComplete="current-password"
-          />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={saveEmail} disabled={saving} className="btn btn-secondary text-xs">
-            Salvar email
-          </button>
-          <Link to={`${routePrefix}/change-password`} className="btn btn-secondary text-xs inline-flex items-center gap-1.5">
-            <KeyRound className="w-3.5 h-3.5" />
-            Alterar senha
-          </Link>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">WhatsApp cadastrado</label>
-          <input
-            className="input w-full bg-slate-50 text-slate-500"
-            value={formatPhone(form.registeredPhone)}
-            disabled
-            readOnly
-          />
-          <p className="text-xs text-slate-500 mt-1">Alteração somente via suporte — evita desvincular o número errado.</p>
-        </div>
-      </section>
-
-      <section className="card p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-900">Informações para promoções</h2>
-        <p className="text-xs text-slate-500">Aparecem na vitrine pública quando o addon estiver ativo.</p>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Slogan</label>
-          <input
-            className="input w-full"
-            placeholder="Ex: Padaria artesanal desde 1998"
-            value={form.profile.tagline || ''}
-            onChange={(e) => setProfileField('tagline', e.target.value)}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5" /> Endereço
-            </label>
-            <input
-              className="input w-full mb-2"
-              placeholder="Rua, número"
-              value={form.profile.address?.line1 || ''}
-              onChange={(e) => setProfileField('address.line1', e.target.value)}
-            />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="profile-logo-actions">
               <input
-                className="input"
-                placeholder="Bairro"
-                value={form.profile.address?.neighborhood || ''}
-                onChange={(e) => setProfileField('address.neighborhood', e.target.value)}
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={onLogoPick}
               />
+              <button type="button" disabled={uploadingLogo} onClick={() => fileRef.current?.click()} className="btn btn-secondary text-xs">
+                {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                Enviar logo
+              </button>
+              {form.logoUrl && (
+                <button type="button" onClick={removeLogo} className="btn btn-secondary text-xs text-red-600">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Remover
+                </button>
+              )}
+            </div>
+            <p className="profile-field-hint mb-4">JPG, PNG ou WebP · até 2 MB · aparece na vitrine pública</p>
+
+            <div className="profile-field">
+              <label>Nome da empresa</label>
               <input
-                className="input"
-                placeholder="Cidade"
-                value={form.profile.address?.city || ''}
-                onChange={(e) => setProfileField('address.city', e.target.value)}
+                className="input w-full"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
             </div>
-            <input
-              className="input w-24 mt-2"
-              placeholder="UF"
-              maxLength={2}
-              value={form.profile.address?.state || ''}
-              onChange={(e) => setProfileField('address.state', e.target.value.toUpperCase())}
-            />
+
+            <div className="profile-field">
+              <label>Link fixo (slug)</label>
+              <input className="input w-full profile-readonly" value={form.slug} disabled readOnly />
+              <p className="profile-field-hint">Alteração apenas pelo suporte ou admin.</p>
+            </div>
+          </section>
+        )}
+
+        {tab === 'security' && (
+          <section className="profile-panel">
+            <div className="profile-shield-note">
+              <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                Sua senha nunca é exibida nem armazenada nesta tela.
+                Só pedimos confirmação no momento de alterar o email.
+              </span>
+            </div>
+
+            <h2 className="profile-panel-title">Acesso à conta</h2>
+
+            <div className="profile-security-row">
+              <div>
+                <div className="profile-security-label">Email de login</div>
+                <div className="profile-security-value">{maskEmail(loginEmail)}</div>
+              </div>
+              {!emailEditing && (
+                <button type="button" className="btn btn-secondary text-xs" onClick={() => setEmailEditing(true)}>
+                  Alterar email
+                </button>
+              )}
+            </div>
+
+            {emailEditing && (
+              <div className="profile-email-form">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-stone-800">Novo email</span>
+                  <button type="button" onClick={cancelEmailEdit} className="p-1 text-stone-400 hover:text-stone-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="profile-field">
+                  <label>Novo email</label>
+                  <input
+                    type="email"
+                    className="input w-full"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    autoComplete="email"
+                  />
+                </div>
+                <div className="profile-field">
+                  <label>Senha atual (confirmação)</label>
+                  <input
+                    key={emailPwdKey}
+                    type="password"
+                    className="input w-full"
+                    onChange={(e) => emailPassword.set(e.target.value)}
+                    autoComplete="current-password"
+                    placeholder="Digite sua senha atual"
+                  />
+                  <p className="profile-field-hint">A senha não fica salva — usada só nesta confirmação.</p>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button type="button" onClick={saveEmail} disabled={saving} className="btn btn-primary text-xs">
+                    Confirmar email
+                  </button>
+                  <button type="button" onClick={cancelEmailEdit} className="btn btn-secondary text-xs">
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="profile-security-row">
+              <div>
+                <div className="profile-security-label">Senha</div>
+                <div className="profile-security-value">••••••••</div>
+              </div>
+              <Link to={`${routePrefix}/change-password`} className="btn btn-secondary text-xs inline-flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5" />
+                Alterar senha
+              </Link>
+            </div>
+
+            <div className="profile-security-row">
+              <div>
+                <div className="profile-security-label">WhatsApp cadastrado</div>
+                <div className="profile-security-value">{formatPhone(form.registeredPhone)}</div>
+              </div>
+            </div>
+            <p className="profile-field-hint mt-2">
+              Número vinculado ao disparo — alteração somente via suporte.
+            </p>
+          </section>
+        )}
+
+        {tab === 'vitrine' && (
+          <>
+            <section className="profile-panel">
+              <h2 className="profile-panel-title">Informações públicas</h2>
+              <p className="text-sm text-stone-600 mb-4">
+                Exibidas em <strong>/promocao-do-dia</strong> quando o addon estiver ativo.
+              </p>
+
+              <div className="profile-field">
+                <label>Slogan</label>
+                <input
+                  className="input w-full"
+                  placeholder="Ex: Padaria artesanal desde 1998"
+                  value={form.profile.tagline || ''}
+                  onChange={(e) => setProfileField('tagline', e.target.value)}
+                />
+              </div>
+
+              <div className="profile-field">
+                <label className="flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" /> Endereço
+                </label>
+                <input
+                  className="input w-full mb-2"
+                  placeholder="Rua, número"
+                  value={form.profile.address?.line1 || ''}
+                  onChange={(e) => setProfileField('address.line1', e.target.value)}
+                />
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <input
+                    className="input"
+                    placeholder="Bairro"
+                    value={form.profile.address?.neighborhood || ''}
+                    onChange={(e) => setProfileField('address.neighborhood', e.target.value)}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Cidade"
+                    value={form.profile.address?.city || ''}
+                    onChange={(e) => setProfileField('address.city', e.target.value)}
+                  />
+                </div>
+                <input
+                  className="input w-24"
+                  placeholder="UF"
+                  maxLength={2}
+                  value={form.profile.address?.state || ''}
+                  onChange={(e) => setProfileField('address.state', e.target.value.toUpperCase())}
+                />
+              </div>
+
+              <div className="profile-field">
+                <label className="flex items-center gap-1">
+                  <ExternalLink className="w-3.5 h-3.5" /> Instagram
+                </label>
+                <input
+                  className="input w-full"
+                  placeholder="https://instagram.com/sua_loja"
+                  value={form.profile.instagramUrl || ''}
+                  onChange={(e) => setProfileField('instagramUrl', e.target.value)}
+                />
+              </div>
+            </section>
+
+            <section className="profile-panel">
+              <h2 className="profile-panel-title">Horários e disponibilidade</h2>
+
+              <div className="profile-field">
+                <label>Horário de funcionamento</label>
+                <BusinessHoursEditor
+                  value={form.profile.businessHours}
+                  onChange={(businessHours) => setProfileField('businessHours', businessHours)}
+                />
+              </div>
+
+              <div className="profile-field">
+                <label>Disponibilidade</label>
+                <select
+                  className="input w-full"
+                  value={form.profile.availabilityStatus || 'open'}
+                  onChange={(e) => setProfileField('availabilityStatus', e.target.value)}
+                >
+                  {AVAILABILITY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="profile-field">
+                <label>Observação</label>
+                <input
+                  className="input w-full"
+                  placeholder="Ex: Delivery das 10h às 22h"
+                  value={form.profile.availabilityNote || ''}
+                  onChange={(e) => setProfileField('availabilityNote', e.target.value)}
+                />
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab !== 'security' && (
+          <div className="profile-footer">
+            <button type="button" onClick={saveProfile} disabled={saving} className="btn btn-primary">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar alterações
+            </button>
           </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-2">Horário de funcionamento</label>
-          <BusinessHoursEditor
-            value={form.profile.businessHours}
-            onChange={(businessHours) => setProfileField('businessHours', businessHours)}
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Disponibilidade</label>
-          <select
-            className="input w-full"
-            value={form.profile.availabilityStatus || 'open'}
-            onChange={(e) => setProfileField('availabilityStatus', e.target.value)}
-          >
-            {AVAILABILITY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Observação de disponibilidade</label>
-          <input
-            className="input w-full"
-            placeholder="Ex: Delivery das 10h às 22h"
-            value={form.profile.availabilityNote || ''}
-            onChange={(e) => setProfileField('availabilityNote', e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1">
-            <ExternalLink className="w-3.5 h-3.5" /> Instagram
-          </label>
-          <input
-            className="input w-full"
-            placeholder="https://instagram.com/sua_loja"
-            value={form.profile.instagramUrl || ''}
-            onChange={(e) => setProfileField('instagramUrl', e.target.value)}
-          />
-        </div>
-      </section>
-
-      <div className="flex justify-end pb-8">
-        <button type="button" onClick={saveProfile} disabled={saving} className="btn btn-primary">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Salvar perfil
-        </button>
+        )}
       </div>
-    </div>
     </div>
   );
 }

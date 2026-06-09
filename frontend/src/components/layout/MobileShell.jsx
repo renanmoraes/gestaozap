@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   Send, FileText, Users, Clock, MoreHorizontal, X, Zap, LogOut,
   BarChart2, Database, CreditCard, Sparkles, UserCircle,
-  UserCheck, Zap as ZapIcon,
+  UserCheck, MessageCircle, Smartphone,
 } from 'lucide-react';
 import { useTenant } from '../../context/TenantContext';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -18,14 +18,39 @@ const BOTTOM_NAV = [
 function MoreMenu({ open, onClose, prefix, extraItems, showPromotions }) {
   if (!open) return null;
 
-  const moreItems = [
-    ...(showPromotions ? [{ to: '/promotions', label: 'Promoções', icon: Sparkles }] : []),
-    { to: '/history', label: 'Histórico', icon: BarChart2 },
-    { to: '/quick-replies', label: 'Mensagens rápidas', icon: ZapIcon },
-    { to: '/billing', label: 'Financeiro', icon: CreditCard },
-    { to: '/profile', label: 'Perfil', icon: UserCircle },
-    { to: '/backup', label: 'Backup', icon: Database },
-    ...extraItems,
+  const sections = [
+    {
+      label: 'Conexão',
+      items: [
+        { to: '/', label: 'WhatsApp', icon: Smartphone, end: true },
+        { to: '/chat', label: 'Conversas', icon: MessageCircle },
+      ],
+    },
+    {
+      label: 'Atendimento',
+      items: [
+        { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
+      ],
+    },
+    {
+      label: 'Campanhas',
+      items: [
+        { to: '/history', label: 'Histórico', icon: BarChart2 },
+      ],
+    },
+    ...(showPromotions ? [{
+      label: 'Vitrine',
+      items: [{ to: '/promotions', label: 'Promoções', icon: Sparkles }],
+    }] : []),
+    {
+      label: 'Conta',
+      items: [
+        { to: '/profile', label: 'Perfil', icon: UserCircle },
+        { to: '/billing', label: 'Financeiro', icon: CreditCard },
+        { to: '/backup', label: 'Backup', icon: Database },
+        ...extraItems,
+      ],
+    },
   ];
 
   return (
@@ -40,25 +65,34 @@ function MoreMenu({ open, onClose, prefix, extraItems, showPromotions }) {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          {moreItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={`${prefix}${to}`}
-              onClick={onClose}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 p-3 rounded-xl border text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-brand-50 border-brand-200 text-brand-700'
-                    : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                }`
-              }
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              {label}
-            </NavLink>
-          ))}
-        </div>
+
+        {sections.map((section) => (
+          <div key={section.label} className="mb-4 last:mb-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 mb-2">
+              {section.label}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {section.items.map(({ to, label, icon: Icon, end }) => (
+                <NavLink
+                  key={to}
+                  to={`${prefix}${to}`}
+                  end={end}
+                  onClick={onClose}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2.5 p-3 rounded-xl border text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-brand-50 border-brand-200 text-brand-700'
+                        : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`
+                  }
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -86,10 +120,13 @@ export default function MobileShell({ children, prefix, sidebar }) {
   }
 
   const isMoreActive = [
+    '/', '/chat', '/quick-replies', '/history', '/billing', '/backup', '/profile', '/affiliate',
     ...(showPromotions ? ['/promotions'] : []),
-    '/history', '/quick-replies', '/billing', '/backup', '/profile', '/affiliate',
-  ]
-    .some((p) => location.pathname.endsWith(p) || location.pathname.includes(`${prefix}${p}`));
+  ].some((p) => {
+    const full = `${prefix}${p}`;
+    if (p === '/') return location.pathname === full || location.pathname === `${full}/`;
+    return location.pathname.endsWith(p) || location.pathname.includes(full);
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">

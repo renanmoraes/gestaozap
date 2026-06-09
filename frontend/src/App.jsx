@@ -154,25 +154,51 @@ function AdminApp({ basePath = '' }) {
 
 /* ─── App Tenant ──────────────────────────────────────────── */
 
-function buildTenantNav(isAffiliate, hasPromotions) {
-  const items = [
-    { to: '/', label: 'WhatsApp', icon: Smartphone, end: true },
-    { to: '/chat', label: 'Conversas', icon: MessageCircle },
-    { to: '/contacts', label: 'Contatos', icon: Users },
-    { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
-    { to: '/campaigns', label: 'Templates', icon: FileText },
-    ...(hasPromotions ? [{ to: '/promotions', label: 'Promoções', icon: Sparkles }] : []),
-    { to: '/send', label: 'Disparo', icon: Send },
-    { to: '/queue', label: 'Fila', icon: Clock },
-    { to: '/history', label: 'Histórico', icon: BarChart2 },
-    { to: '/backup', label: 'Backup', icon: Database },
-    { to: '/billing', label: 'Financeiro', icon: CreditCard },
-    { to: '/profile', label: 'Perfil', icon: UserCircle },
+function buildTenantNavSections(isAffiliate, hasPromotions) {
+  const sections = [
+    {
+      label: 'Conexão',
+      items: [
+        { to: '/', label: 'WhatsApp', icon: Smartphone, end: true },
+      ],
+    },
+    {
+      label: 'Atendimento',
+      items: [
+        { to: '/chat', label: 'Conversas', icon: MessageCircle },
+        { to: '/contacts', label: 'Contatos', icon: Users },
+        { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
+      ],
+    },
+    {
+      label: 'Campanhas',
+      items: [
+        { to: '/campaigns', label: 'Templates', icon: FileText },
+        { to: '/send', label: 'Disparo', icon: Send },
+        { to: '/queue', label: 'Fila', icon: Clock },
+        { to: '/history', label: 'Histórico', icon: BarChart2 },
+      ],
+    },
   ];
-  if (isAffiliate) {
-    items.push({ to: '/affiliate', label: 'Afiliado', icon: UserCheck });
+
+  if (hasPromotions) {
+    sections.push({
+      label: 'Vitrine',
+      items: [{ to: '/promotions', label: 'Promoções', icon: Sparkles }],
+    });
   }
-  return items;
+
+  sections.push({
+    label: 'Conta',
+    items: [
+      { to: '/billing', label: 'Financeiro', icon: CreditCard },
+      { to: '/backup', label: 'Backup', icon: Database },
+      { to: '/profile', label: 'Perfil', icon: UserCircle },
+      ...(isAffiliate ? [{ to: '/affiliate', label: 'Afiliado', icon: UserCheck }] : []),
+    ],
+  });
+
+  return sections;
 }
 
 function AffiliateRoute({ isAffiliate, prefix }) {
@@ -199,7 +225,7 @@ function TenantLayout({ basePath = '' }) {
   const isMobile = useIsMobile();
   const prefix = basePath.replace(/\/$/, '');
   const hasPromotions = hasFeature('vitrine-promocoes');
-  const tenantNav = buildTenantNav(isAffiliate, hasPromotions);
+  const tenantNavSections = buildTenantNavSections(isAffiliate, hasPromotions);
 
   if (window.location.pathname === `${prefix}/registrar` || window.location.pathname === '/registrar') {
     return <Register />;
@@ -241,22 +267,36 @@ function TenantLayout({ basePath = '' }) {
         )}
       </div>
 
-      <nav className="flex-1 px-2 py-4 space-y-0.5">
-        {tenantNav.map(({ to, label, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={`${prefix}${to}`}
-            end={end}
-            title={!open ? label : undefined}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                isActive ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`
-            }
-          >
-            <Icon className="w-4 h-4 shrink-0" />
-            {open && <span className="text-sm font-medium">{label}</span>}
-          </NavLink>
+      <nav className="flex-1 px-2 py-3 overflow-y-auto">
+        {tenantNavSections.map((section) => (
+          <div key={section.label} className="mb-3 last:mb-0">
+            {open && (
+              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                {section.label}
+              </div>
+            )}
+            {!open && section.items.length > 0 && (
+              <div className="mx-3 my-2 border-t border-slate-800" aria-hidden />
+            )}
+            <div className="space-y-0.5">
+              {section.items.map(({ to, label, icon: Icon, end }) => (
+                <NavLink
+                  key={to}
+                  to={`${prefix}${to}`}
+                  end={end}
+                  title={!open ? label : undefined}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                      isActive ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`
+                  }
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {open && <span className="text-sm font-medium">{label}</span>}
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 

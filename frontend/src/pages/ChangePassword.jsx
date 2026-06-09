@@ -25,8 +25,14 @@ export default function ChangePassword({ onSuccess, oldPassword: initialOldPassw
     setLoading(true);
     try {
       await api.post('/api/auth/change-password', { oldPassword, newPassword });
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
       onSuccess?.();
     } catch (err) {
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
       setError(err.response?.data?.error || 'Erro ao alterar senha');
     } finally {
       setLoading(false);
@@ -61,6 +67,7 @@ export default function ChangePassword({ onSuccess, oldPassword: initialOldPassw
                   className="input"
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
+                  autoComplete="current-password"
                   required
                 />
               </div>
@@ -72,6 +79,7 @@ export default function ChangePassword({ onSuccess, oldPassword: initialOldPassw
                 className="input"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
                 required
                 minLength={8}
               />
@@ -83,6 +91,7 @@ export default function ChangePassword({ onSuccess, oldPassword: initialOldPassw
                 className="input"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
                 required
                 minLength={8}
               />
