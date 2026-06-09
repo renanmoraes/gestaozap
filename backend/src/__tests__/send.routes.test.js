@@ -39,7 +39,12 @@ describe('POST /api/send', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(whatsapp.sendMessage).toHaveBeenCalledWith('5531999999999', 'teste', null);
+    expect(whatsapp.sendMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      '5531999999999',
+      'teste',
+      null,
+    );
   });
 
   it('returns 400 on test-number when whatsapp disconnected', async () => {

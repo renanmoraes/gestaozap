@@ -22,6 +22,7 @@ export default function Session() {
   const [status, setStatus] = useState('loading');
   const [qr, setQr] = useState(null);
   const [error, setError] = useState(null);
+  const [countryCode, setCountryCode] = useState('55');
   const [testPhone, setTestPhone] = useState('');
   const [testMessage, setTestMessage] = useState('');
   const [testing, setTesting] = useState(false);
@@ -50,7 +51,11 @@ export default function Session() {
     setTesting(true);
     setTestFeedback(null);
     try {
-      await api.post('/api/send/test-number', { phone: testPhone, message: testMessage });
+      await api.post('/api/send/test-number', {
+        countryCode,
+        phone: testPhone,
+        message: testMessage,
+      });
       setTestFeedback({ ok: true, msg: 'Mensagem enviada com sucesso!' });
     } catch (err) {
       setTestFeedback({ ok: false, msg: err.response?.data?.error || 'Erro ao enviar' });
@@ -125,15 +130,32 @@ export default function Session() {
             <h2 className="text-sm font-semibold text-slate-900">Envio de teste</h2>
             <form onSubmit={sendTest} className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Número (com DDD)</label>
-                <input
-                  type="tel"
-                  className="input"
-                  placeholder="Ex: 5511999999999"
-                  value={testPhone}
-                  onChange={(e) => setTestPhone(e.target.value)}
-                  required
-                />
+                <label className="block text-xs font-medium text-slate-700 mb-1">Número de destino</label>
+                <div className="flex gap-2">
+                  <select
+                    className="input w-[118px] shrink-0"
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value)}
+                    aria-label="Código do país"
+                  >
+                    <option value="55">🇧🇷 +55</option>
+                    <option value="1">🇺🇸 +1</option>
+                    <option value="351">🇵🇹 +351</option>
+                    <option value="54">🇦🇷 +54</option>
+                    <option value="598">🇺🇾 +598</option>
+                  </select>
+                  <input
+                    type="tel"
+                    className="input flex-1 min-w-0"
+                    placeholder="DDD + número — ex: 11 99999-9999"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    required
+                  />
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Só o DDD e o número — o +{countryCode} já está selecionado.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Mensagem (opcional)</label>
