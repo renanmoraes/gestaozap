@@ -4,6 +4,8 @@ import {
   Plus, RefreshCw, CheckCircle2, XCircle, Wifi, AlertCircle, ChevronRight, Mail, Clock, Check, X, Tag,
 } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
 import { formatDateBr } from '../../utils/timezone';
 
@@ -22,7 +24,7 @@ function PendingApprovals({ items, onChange }) {
       await api.post(`/api/admin/tenants/${id}/${action}`, body);
       onChange();
     } catch (err) {
-      alert(err.response?.data?.error || 'Erro na operação');
+      dialog.toast.error(apiErrorMessage(err, MSG.operationFailed));
     } finally {
       setBusy(null);
     }

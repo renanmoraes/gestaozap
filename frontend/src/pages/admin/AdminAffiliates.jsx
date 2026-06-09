@@ -4,9 +4,11 @@ import {
   Users, ChevronDown, ChevronUp, AlertCircle,
 } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 import { formatDateBr } from '../../utils/timezone';
-
-const BASE_URL = window.location.origin.replace('?admin=1', '');
+import TenantSearchPicker from '../../components/admin/TenantSearchPicker';
+import { affiliateLink } from '../../utils/marketingUrl';
 
 function CopyBtn({ text }) {
   const [copied, setCopied] = useState(false);
@@ -33,7 +35,7 @@ function AffiliateRow({ aff, onRefresh }) {
   });
   const [saving, setSaving] = useState(false);
 
-  const link = `${BASE_URL}/registrar?ref=${aff.code}`;
+  const link = affiliateLink(aff.code);
 
   const loadReferrals = async () => {
     if (referrals.length) return;
@@ -51,12 +53,12 @@ function AffiliateRow({ aff, onRefresh }) {
         commissionPct: form.commissionPct, discountPct: form.discountPct, notes: form.notes,
       });
       onRefresh(); setEditing(false);
-    } catch (err) { alert(err.response?.data?.error || 'Erro ao salvar'); }
+    } catch (err) { dialog.toast.error(apiErrorMessage(err, MSG.adminSaveFailed)); }
     finally { setSaving(false); }
   };
 
   const pay = async () => {
-    if (!confirm('Marcar todas as comissões confirmadas como pagas?')) return;
+    if (!(await dialog.confirm({ title: 'Pagar comissões', message: MSG.payCommissions }))) return;
     await api.post(`/api/admin/affiliates/${aff.id}/pay`);
     loadReferrals(); onRefresh();
   };
@@ -118,6 +120,19 @@ function AffiliateRow({ aff, onRefresh }) {
         </td>
 
         <td className="px-4 py-3">
+          {aff.tenant_name ? (
+            <div>
+              <div className="text-sm font-medium text-slate-900">{aff.tenant_name}</div>
+              <div className="text-xs text-slate-400 font-mono">
+                #{aff.company_id || '—'} · /{aff.tenant_slug}
+              </div>
+            </div>
+          ) : (
+            <span className="text-xs text-slate-400">—</span>
+          )}
+        </td>
+
+        <td className="px-4 py-3">
           <div className="text-sm font-semibold text-slate-900">
             R$ {totalEarned.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </div>
@@ -167,7 +182,7 @@ function AffiliateRow({ aff, onRefresh }) {
 
       {expanded && (
         <tr>
-          <td colSpan={7} className="px-4 pb-3 bg-slate-50">
+          <td colSpan={8} className="px-4 pb-3 bg-slate-50">
             {referrals.length === 0 ? (
               <p className="text-xs text-slate-400 py-2">Nenhuma indicação registrada ainda.</p>
             ) : (
@@ -217,7 +232,10 @@ export default function AdminAffiliates() {
   const [affiliatesList, setAffiliatesList] = useState([]);
   const [loading, setLoading]               = useState(true);
   const [showForm, setShowForm]             = useState(false);
-  const [form, setForm]                     = useState({ name: '', email: '', code: '', commissionPct: 20, discountPct: 10, notes: '' });
+  const [form, setForm] = useState({
+    name: '', email: '', code: '', commissionPct: 20, discountPct: 10, notes: '',
+    linkToTenant: false, tenantId: null, selectedTenant: null,
+  });
   const [creating, setCreating]             = useState(false);
   const [formError, setFormError]           = useState(null);
 
@@ -232,9 +250,21 @@ export default function AdminAffiliates() {
     e.preventDefault();
     setCreating(true); setFormError(null);
     try {
-      await api.post('/api/admin/affiliates', form);
+      const payload = {
+        name: form.name,
+        email: form.email,
+        code: form.code,
+        commissionPct: form.commissionPct,
+        discountPct: form.discountPct,
+        notes: form.notes,
+        ...(form.linkToTenant && form.tenantId ? { tenantId: form.tenantId } : {}),
+      };
+      await api.post('/api/admin/affiliates', payload);
       setShowForm(false);
-      setForm({ name: '', email: '', code: '', commissionPct: 20, discountPct: 10, notes: '' });
+      setForm({
+        name: '', email: '', code: '', commissionPct: 20, discountPct: 10, notes: '',
+        linkToTenant: false, tenantId: null, selectedTenant: null,
+      });
       load();
     } catch (err) {
       setFormError(err.response?.data?.error || 'Erro ao criar afiliado');
@@ -269,7 +299,7 @@ export default function AdminAffiliates() {
       </div>
 
       {/* Cards de totais */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Total indicações', value: totals.referrals, icon: Users, format: 'int' },
           { label: 'Total gerado', value: totals.earned, icon: DollarSign, format: 'brl' },
@@ -304,10 +334,38 @@ export default function AdminAffiliates() {
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />{formError}
             </div>
           )}
-          <form onSubmit={create} className="grid grid-cols-2 gap-4">
+          <form onSubmit={create} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.linkToTenant}
+                  onChange={(e) => setForm({
+                    ...form,
+                    linkToTenant: e.target.checked,
+                    tenantId: e.target.checked ? form.tenantId : null,
+                    selectedTenant: e.target.checked ? form.selectedTenant : null,
+                  })}
+                  className="w-4 h-4 rounded border-slate-300 text-brand-600"
+                />
+                <span className="text-sm font-medium text-slate-800">Vincular a cliente existente da plataforma</span>
+              </label>
+              {form.linkToTenant && (
+                <TenantSearchPicker
+                  value={form.selectedTenant}
+                  onChange={(tenant) => setForm({
+                    ...form,
+                    selectedTenant: tenant,
+                    tenantId: tenant?.id || null,
+                    name: form.name || tenant?.name || '',
+                  })}
+                />
+              )}
+            </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Nome</label>
-              <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+              <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required={!form.linkToTenant} />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">E-mail</label>
@@ -358,7 +416,7 @@ export default function AdminAffiliates() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr>
-                  {['Afiliado', 'Código / Link', 'Comissão', 'Desconto', 'Ganhos', 'Ativo', ''].map((h) => (
+                  {['Afiliado', 'Código / Link', 'Comissão', 'Desconto', 'Cliente vinculado', 'Ganhos', 'Ativo', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>

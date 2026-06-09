@@ -1,7 +1,7 @@
 const router = require('express').Router();
-const { eq } = require('drizzle-orm');
+const { eq, and } = require('drizzle-orm');
 const { getDb } = require('../db');
-const { tenants } = require('../db/schema');
+const { tenants, affiliates } = require('../db/schema');
 const { getConfig } = require('../config/platform');
 const tenantResolver = require('../middleware/tenantResolver');
 const requireAuth = require('../middleware/requireAuth');
@@ -20,12 +20,20 @@ function isAdminHost(req) {
   return host.split('.')[0] === 'admin';
 }
 
-function buildAuthResponse(auth, session) {
+async function buildAuthResponse(auth, session) {
   const termsVersion = getConfig('terms_current_version', '2.0');
   const tenant = auth.tenant;
   const termsAccepted = tenant
     ? Boolean(tenant.termsAcceptedAt) && tenant.termsVersion === termsVersion
     : true;
+
+  let isAffiliate = false;
+  if (tenant?.id) {
+    const db = getDb();
+    const [affRow] = await db.select({ id: affiliates.id }).from(affiliates)
+      .where(and(eq(affiliates.tenantId, tenant.id), eq(affiliates.active, true)));
+    isAffiliate = Boolean(affRow);
+  }
 
   return {
     token: session.token,
@@ -36,6 +44,7 @@ function buildAuthResponse(auth, session) {
     tenantName: tenant?.name || auth.company.name,
     slug: tenant?.slug || null,
     registeredPhone: tenant?.registeredPhone || null,
+    isAffiliate,
     termsAccepted,
     termsVersion,
   };
@@ -63,7 +72,7 @@ router.post('/login', tenantResolver, async (req, res) => {
     }
 
     const session = await createSession(result.user.id, result.company.id);
-    res.json(buildAuthResponse(result, session));
+    res.json(await buildAuthResponse(result, session));
   } catch (err) {
     console.error('auth login:', err);
     res.status(500).json({ error: err.message });
@@ -86,6 +95,14 @@ router.get('/me', requireAuth, async (req, res) => {
       }
     }
 
+    let isAffiliate = false;
+    if (tenant?.id) {
+      const db = getDb();
+      const [affRow] = await db.select({ id: affiliates.id }).from(affiliates)
+        .where(and(eq(affiliates.tenantId, tenant.id), eq(affiliates.active, true)));
+      isAffiliate = Boolean(affRow);
+    }
+
     res.json({
       user: req.user,
       company: req.company,
@@ -93,6 +110,7 @@ router.get('/me', requireAuth, async (req, res) => {
       tenantName: tenant?.name || req.company.name,
       slug: tenant?.slug || null,
       registeredPhone: tenant?.registeredPhone || null,
+      isAffiliate,
       termsAccepted: tenant
         ? Boolean(tenant.termsAcceptedAt) && tenant.termsVersion === termsVersion
         : true,

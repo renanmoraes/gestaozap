@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Database, Download, RotateCcw, Trash2, Save, Loader2, Inbox, Info, ShieldCheck } from 'lucide-react';
 import api from '../api';
 import { formatDateTimeBr } from '../utils/timezone';
+import { dialog } from '../utils/dialog';
+import { MSG } from '../utils/messages';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -49,7 +51,7 @@ export default function Backup() {
   };
 
   const restore = async (name) => {
-    if (!confirm(`Restaurar "${name}"?\n\nATENÇÃO: isso SUBSTITUI todos os contatos, campanhas, logs e imagens atuais pelos dados deste backup. Não dá para desfazer.`)) return;
+    if (!(await dialog.confirm({ title: 'Restaurar backup', message: MSG.restoreBackup(name), danger: true }))) return;
     setActing(name); setNotice(null);
     try {
       const r = await api.post(`/api/backup/${name}/restore`);
@@ -63,7 +65,7 @@ export default function Backup() {
   };
 
   const remove = async (name) => {
-    if (!confirm(`Excluir o backup "${name}"?`)) return;
+    if (!(await dialog.confirm({ title: 'Excluir backup', message: MSG.deleteBackup(name), danger: true }))) return;
     setActing(name);
     try { await api.delete(`/api/backup/${name}`); await load(); }
     finally { setActing(null); }

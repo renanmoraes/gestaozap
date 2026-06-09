@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download, Loader2 } from 'lucide-react';
 import api from '../api';
+import { dialog } from '../utils/dialog';
+import { MSG } from '../utils/messages';
 import { useSocket } from '../hooks/useSocket';
 import { formatPhone, maskPhoneInput } from '../utils/phone';
 import ImportContactsModal from '../components/ImportContactsModal';
@@ -109,7 +111,7 @@ export default function Contacts() {
   };
 
   const remove = async (id) => {
-    if (!confirm('Remover contato?')) return;
+    if (!(await dialog.confirm({ title: 'Remover contato', message: MSG.removeContact, danger: true }))) return;
     await api.delete(`/api/contacts/${id}`);
     reloadList();
   };

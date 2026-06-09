@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import landingBody from './landing-body.html?raw';
 import { initLandingEffects } from './useLandingEffects';
+import { persistAffiliateRef } from '../../utils/affiliateRef';
+import api from '../../api';
 import './styles.css';
 import './landing.css';
 
@@ -32,7 +34,13 @@ export default function Landing() {
     // CTAs primários (hero, final e botões de plano) → pré-cadastro self-service,
     // preservando o código de afiliado (?ref=). WhatsApp segue como canal secundário (nav/rodapé).
     const refCode = new URLSearchParams(window.location.search).get('ref');
-    const signupUrl = refCode ? `/registrar?ref=${encodeURIComponent(refCode)}` : '/registrar';
+    if (refCode) {
+      const code = refCode.trim().toUpperCase();
+      persistAffiliateRef(code);
+      api.get(`/api/affiliates/capture/${encodeURIComponent(code)}`).catch(() => {});
+    }
+    // Código fica em sessionStorage; CTAs vão direto ao registro sem ?ref= na URL.
+    const signupUrl = '/registrar';
     root.querySelectorAll('a.btn-wa.btn-lg, #planos a.btn').forEach((a) => {
       a.setAttribute('href', signupUrl);
       a.removeAttribute('target');

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, FileText, Send, Loader2 } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 
 export default function TemplateSendPicker({ chatId, onClose, onSent }) {
   const [campaigns, setCampaigns] = useState([]);
@@ -34,7 +36,7 @@ export default function TemplateSendPicker({ chatId, onClose, onSent }) {
       onSent?.();
       onClose();
     } catch (err) {
-      alert(err.response?.data?.error || 'Erro ao enviar template');
+      dialog.toast.error(apiErrorMessage(err, MSG.templateSendFailed));
     } finally {
       setSending(false);
     }

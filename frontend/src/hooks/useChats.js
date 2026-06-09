@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../api';
+import { dialog } from '../utils/dialog';
+import { apiErrorMessage, MSG } from '../utils/messages';
 import { useSocket } from './useSocket';
 
 /**
@@ -107,7 +109,7 @@ export function useChats({ search = '', tag = null, onlyUnread = false } = {}) {
       await api.post('/api/chats/sync');
       setSync((s) => ({ ...s, active: true }));
     } catch (err) {
-      alert(err.response?.data?.error || 'Não foi possível iniciar a sincronização agora.');
+      dialog.toast.error(apiErrorMessage(err, MSG.syncFailed));
     }
   }, []);
 

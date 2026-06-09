@@ -2,7 +2,10 @@ const router = require('express').Router();
 const { randomBytes } = require('crypto');
 const { eq, and, sql, desc } = require('drizzle-orm');
 const { getDb } = require('../db');
-const { affiliates, affiliateReferrals, tenants, contracts, plans, whatsappSessions } = require('../db/schema');
+const { affiliates, affiliateReferrals, plans } = require('../db/schema');
+const { assertTenantLinkable, fillAffiliateFromTenant } = require('../services/affiliate.service');
+const { setAffiliateRefCookie } = require('../utils/cookie.util');
+const { sendAffiliateWelcome } = require('../services/affiliate-email.service');
 const { registerProcessorForTenant } = require('../services/queue.service');
 const { getIo } = require('../config/registry');
 
@@ -33,14 +36,19 @@ router.get('/', async (req, res) => {
     const rows = await db.execute(sql`
       SELECT
         a.*,
+        t.name AS tenant_name,
+        t.slug AS tenant_slug,
+        co.company_id,
         COUNT(r.id)::int              AS total_referrals,
         COALESCE(SUM(r.commission_brl) FILTER (WHERE r.status != 'paid'), 0) AS pending_brl,
         COALESCE(SUM(r.commission_brl) FILTER (WHERE r.status = 'paid'), 0)  AS paid_brl,
         COALESCE(SUM(r.commission_brl), 0)                                   AS total_earned_brl,
         COALESCE(SUM(r.discount_brl), 0)                                     AS total_discounts_brl
       FROM affiliates a
+      LEFT JOIN tenants t ON t.id = a.tenant_id
+      LEFT JOIN companies co ON co.tenant_id = t.id
       LEFT JOIN affiliate_referrals r ON r.affiliate_id = a.id
-      GROUP BY a.id
+      GROUP BY a.id, t.name, t.slug, co.company_id
       ORDER BY a.created_at DESC
     `);
     res.json(rows.rows);
@@ -54,15 +62,29 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const db = getDb();
-    const { name, email, code, commissionPct, discountPct, notes } = req.body;
+    const {
+      name, email, code, commissionPct, discountPct, notes, tenantId,
+    } = req.body;
 
-    if (!name) return res.status(400).json({ error: 'name é obrigatório' });
+    if (!name && !tenantId) return res.status(400).json({ error: 'name é obrigatório' });
 
     const finalCode = (code || '').trim().toUpperCase() || generateCode();
+    let resolvedName = name;
+    let resolvedEmail = email || null;
+
+    if (tenantId) {
+      await assertTenantLinkable(db, tenantId);
+      const filled = await fillAffiliateFromTenant(db, tenantId, { name: resolvedName, email: resolvedEmail });
+      resolvedName = resolvedName || filled.name;
+      resolvedEmail = resolvedEmail || filled.email || null;
+    }
+
+    if (!resolvedName) return res.status(400).json({ error: 'name é obrigatório' });
 
     const [affiliate] = await db.insert(affiliates).values({
-      name,
-      email: email || null,
+      tenantId: tenantId || null,
+      name: resolvedName,
+      email: resolvedEmail,
       code: finalCode,
       commissionPct: String(commissionPct ?? 0),
       discountPct: String(discountPct ?? 0),
@@ -70,8 +92,19 @@ router.post('/', async (req, res) => {
       active: true,
     }).returning();
 
+    if (affiliate.email) {
+      sendAffiliateWelcome({
+        to: affiliate.email,
+        name: affiliate.name,
+        code: affiliate.code,
+        commissionPct: affiliate.commissionPct,
+        discountPct: affiliate.discountPct,
+      }).catch((err) => console.warn('[affiliates] email welcome:', err.message));
+    }
+
     res.status(201).json(affiliate);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     if (err.code === '23505') return res.status(409).json({ error: 'Código já existe — escolha outro' });
     console.error('affiliates post:', err);
     res.status(500).json({ error: err.message });
@@ -82,7 +115,9 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const { name, email, commissionPct, discountPct, active, notes } = req.body;
+    const {
+      name, email, commissionPct, discountPct, active, notes, tenantId,
+    } = req.body;
     const update = { updatedAt: new Date() };
     if (name          !== undefined) update.name          = name;
     if (email         !== undefined) update.email         = email;
@@ -91,11 +126,27 @@ router.patch('/:id', async (req, res) => {
     if (active        !== undefined) update.active        = Boolean(active);
     if (notes         !== undefined) update.notes         = notes;
 
+    if (tenantId !== undefined) {
+      if (tenantId === null || tenantId === '') {
+        update.tenantId = null;
+      } else {
+        await assertTenantLinkable(db, tenantId, req.params.id);
+        update.tenantId = tenantId;
+        const filled = await fillAffiliateFromTenant(db, tenantId, {
+          name: update.name,
+          email: update.email,
+        });
+        if (!update.name && filled.name) update.name = filled.name;
+        if (!update.email && filled.email) update.email = filled.email;
+      }
+    }
+
     const [affiliate] = await db.update(affiliates).set(update)
       .where(eq(affiliates.id, req.params.id)).returning();
     if (!affiliate) return res.status(404).json({ error: 'Afiliado não encontrado' });
     res.json(affiliate);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('affiliates patch:', err);
     res.status(500).json({ error: err.message });
   }
@@ -138,7 +189,24 @@ router.post('/:id/pay', async (req, res) => {
   }
 });
 
-/* ─── Público: validar código + info do afiliado ──────── */
+/* ─── Público: capturar e validar código de afiliado ──────── */
+
+// GET /api/affiliates/capture/:code — grava cookie httpOnly para travar o código no signup
+router.get('/capture/:code', async (req, res) => {
+  try {
+    const db = getDb();
+    const code = String(req.params.code || '').trim().toUpperCase();
+    const [affiliate] = await db.select({ code: affiliates.code }).from(affiliates)
+      .where(and(eq(affiliates.code, code), eq(affiliates.active, true)));
+
+    if (!affiliate) return res.status(404).json({ error: 'Código de afiliado inválido ou inativo' });
+
+    setAffiliateRefCookie(res, affiliate.code);
+    res.json({ ok: true, code: affiliate.code });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/affiliates/validate/:code — usado pelo frontend no link de afiliado
 router.get('/validate/:code', async (req, res) => {

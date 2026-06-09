@@ -133,6 +133,7 @@ const feedbackAnalyses = pgTable('feedback_analyses', {
 
 const affiliates = pgTable('affiliates', {
   id:            uuid('id').defaultRandom().primaryKey(),
+  tenantId:      uuid('tenant_id').references(() => tenants.id, { onDelete: 'set null' }),
   name:          varchar('name', { length: 255 }).notNull(),
   email:         varchar('email', { length: 255 }),
   code:          varchar('code', { length: 50 }).notNull().unique(),

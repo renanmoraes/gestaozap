@@ -6,6 +6,8 @@ import {
   Shield, ShieldOff, PowerOff, Plus, Tag, Clock, Hash, Building2, RefreshCw,
 } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
 import { formatDateBr, formatDateTimeBr } from '../../utils/timezone';
 
@@ -110,7 +112,7 @@ export default function AdminTenantDetail() {
       setEdit(false);
       load();
     } catch (err) {
-      alert(err.response?.data?.error || 'Erro ao salvar');
+      dialog.toast.error(apiErrorMessage(err, MSG.adminSaveFailed));
     } finally {
       setSaving(false);
     }
@@ -118,15 +120,31 @@ export default function AdminTenantDetail() {
 
   const toggleActive = async () => {
     const verb = data.tenant.active ? 'bloquear' : 'reativar';
-    if (!confirm(`Confirma ${verb} ${data.tenant.name}?`)) return;
+    if (!(await dialog.confirm({ title: verb === 'bloquear' ? 'Bloquear cliente' : 'Reativar cliente', message: MSG.blockTenant(data.tenant.name, verb) }))) return;
     await api.patch(`/api/admin/tenants/${id}`, { active: !data.tenant.active });
     load();
   };
 
   const disconnectWa = async () => {
-    if (!confirm('Desconectar a sessão WhatsApp deste cliente? Ele precisará escanear o QR de novo.')) return;
+    if (!(await dialog.confirm({ title: 'Desconectar WhatsApp', message: MSG.disconnectWa, danger: true }))) return;
     await api.post(`/api/admin/tenants/${id}/disconnect-wa`);
     setTimeout(load, 800);
+  };
+
+  const makeAffiliate = async () => {
+    try {
+      const { data } = await api.post(`/api/admin/tenants/${id}/make-affiliate`, {
+        commissionPct: 20,
+        discountPct: 10,
+      });
+      dialog.toast.success(
+        data.created
+          ? `Afiliado criado com código ${data.affiliate.code}.`
+          : `Cliente já vinculado como afiliado (${data.affiliate.code}).`,
+      );
+    } catch (err) {
+      dialog.toast.error(apiErrorMessage(err, 'Não conseguimos vincular como afiliado.'));
+    }
   };
 
   const extendContract = async () => {
@@ -136,7 +154,7 @@ export default function AdminTenantDetail() {
       await api.post(`/api/admin/tenants/${id}/extend`, { days });
       load();
     } catch (err) {
-      alert(err.response?.data?.error || 'Erro ao estender');
+      dialog.toast.error(apiErrorMessage(err, MSG.extendContractFailed));
     }
   };
 
@@ -153,7 +171,7 @@ export default function AdminTenantDetail() {
 
   const toggleKillSwitch = async () => {
     if (antiBlock?.killSwitch) {
-      if (!confirm('Liberar envios para este cliente?')) return;
+      if (!(await dialog.confirm({ title: 'Liberar envios', message: MSG.unlockKillSwitch }))) return;
       await api.post(`/api/admin/tenants/${id}/kill-switch`, { action: 'off' });
     } else {
       const reason = prompt('Motivo para travar envios? (será visível no log)', 'suspeita_de_bloqueio');
@@ -192,6 +210,10 @@ export default function AdminTenantDetail() {
           </button>
           {!editing ? (
             <>
+              <button onClick={makeAffiliate} className="btn-secondary text-sm flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5" />
+                Tornar afiliado
+              </button>
               <button onClick={() => setEdit(true)} className="btn-secondary text-sm flex items-center gap-1.5">
                 <Edit2 className="w-3.5 h-3.5" />
                 Editar dados
@@ -688,14 +710,14 @@ function DlqPanel({ tenantId }) {
   React.useEffect(load, [tenantId]);
 
   const redriveAll = async () => {
-    if (!confirm('Re-enfileirar TODAS as mensagens da DLQ? Elas vão tentar enviar de novo.')) return;
+    if (!(await dialog.confirm({ title: 'Re-enfileirar DLQ', message: MSG.redriveDlq }))) return;
     setRedriving(true);
     try {
       const { data: r } = await api.post(`/api/admin/tenants/${tenantId}/dlq/redrive`, {});
-      alert(`${r.redriven} mensagens re-enfileiradas em ${r.campaigns} campanha(s).`);
+      dialog.toast.success(MSG.redriven(r.redriven, r.campaigns));
       load();
     } catch (err) {
-      alert(err.response?.data?.error || 'Erro ao re-enfileirar');
+      dialog.toast.error(apiErrorMessage(err, 'Não conseguimos re-enfileirar.'));
     } finally {
       setRedriving(false);
     }

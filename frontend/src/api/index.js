@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const baseURL = import.meta.env.VITE_API_URL ?? '';
 
-const api = axios.create({ baseURL });
+const api = axios.create({ baseURL, withCredentials: true });
 
 // Injeta token de autenticação em todas as requisições.
 // Detecta contexto admin (rotas /api/admin/* ou subdomínio admin/?admin=1)

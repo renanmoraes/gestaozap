@@ -4,6 +4,8 @@ import {
   Mic, FileText, Film, File,
 } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 import QuickReplyPicker from './QuickReplyPicker';
 import {
   CHAT_ACCEPT,
@@ -147,7 +149,7 @@ export default function MessageInput({ chatId, contactName, onOptimisticSend, on
         setBody(''); setFile(null); setFileError('');
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'Não rolou enviar agora. Confira a conexão e tente de novo.');
+      dialog.toast.error(apiErrorMessage(err, MSG.sendFailed));
     } finally {
       setSending(false);
       requestAnimationFrame(() => taRef.current?.focus());

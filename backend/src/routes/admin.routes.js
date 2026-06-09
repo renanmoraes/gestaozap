@@ -10,7 +10,10 @@ const {
   contracts,
   paymentRecords,
   sendLogs,
+  affiliates,
 } = require('../db/schema');
+const { assertTenantLinkable, fillAffiliateFromTenant } = require('../services/affiliate.service');
+const { sendAffiliateWelcome } = require('../services/affiliate-email.service');
 const { refreshConfig } = require('../config/platform');
 const { registerProcessorForTenant } = require('../services/queue.service');
 const { getIo } = require('../config/registry');
@@ -52,6 +55,88 @@ router.get('/tenants', async (req, res) => {
     res.json(rows.rows);
   } catch (err) {
     console.error('admin get tenants:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* GET /api/admin/tenants/search?q= — autocomplete para vincular afiliado */
+router.get('/tenants/search', async (req, res) => {
+  try {
+    const db = getDb();
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json([]);
+
+    const like = `%${q}%`;
+    const rows = await db.execute(sql`
+      SELECT
+        t.id, t.name, t.slug, t.approval_status, t.active,
+        co.company_id,
+        EXISTS(SELECT 1 FROM affiliates a WHERE a.tenant_id = t.id) AS has_affiliate
+      FROM tenants t
+      LEFT JOIN companies co ON co.tenant_id = t.id
+      WHERE t.approval_status = 'approved' AND t.active = true
+        AND (
+          t.name ILIKE ${like}
+          OR t.slug ILIKE ${like}
+          OR co.company_id::text ILIKE ${like}
+        )
+      ORDER BY t.name
+      LIMIT 20
+    `);
+    res.json(rows.rows);
+  } catch (err) {
+    console.error('admin tenants search:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* POST /api/admin/tenants/:id/make-affiliate — atalho para tornar cliente afiliado */
+router.post('/tenants/:id/make-affiliate', async (req, res) => {
+  try {
+    const db = getDb();
+    const tenantId = req.params.id;
+    const { commissionPct = 20, discountPct = 10, code } = req.body || {};
+
+    const tenant = await assertTenantLinkable(db, tenantId);
+
+    const [existing] = await db.select().from(affiliates)
+      .where(eq(affiliates.tenantId, tenantId));
+    if (existing) {
+      return res.json({ ok: true, affiliate: existing, created: false });
+    }
+
+    const filled = await fillAffiliateFromTenant(db, tenantId, {});
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const finalCode = (code || '').trim().toUpperCase() || Array.from(
+      { length: 6 },
+      () => chars[Math.floor(Math.random() * chars.length)],
+    ).join('');
+
+    const [affiliate] = await db.insert(affiliates).values({
+      tenantId,
+      name: filled.name || tenant.name,
+      email: filled.email || null,
+      code: finalCode,
+      commissionPct: String(commissionPct),
+      discountPct: String(discountPct),
+      active: true,
+    }).returning();
+
+    if (affiliate.email) {
+      sendAffiliateWelcome({
+        to: affiliate.email,
+        name: affiliate.name,
+        code: affiliate.code,
+        commissionPct: affiliate.commissionPct,
+        discountPct: affiliate.discountPct,
+      }).catch((err) => console.warn('[admin] affiliate welcome email:', err.message));
+    }
+
+    res.status(201).json({ ok: true, affiliate, created: true });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.code === '23505') return res.status(409).json({ error: 'Código já existe' });
+    console.error('admin make-affiliate:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -217,7 +217,7 @@ export default function SendPage() {
     const h = getCurrentHourBr();
     let ignoreHours = false;
     if (isOutsideRecommendedHours(h, DEFAULT_HOUR_START, DEFAULT_HOUR_END)) {
-      if (!confirmSendOutsideHours(DEFAULT_HOUR_START, DEFAULT_HOUR_END)) return;
+      if (!(await confirmSendOutsideHours(DEFAULT_HOUR_START, DEFAULT_HOUR_END))) return;
       ignoreHours = true;
     }
     setSending(true); setNotice(null); setProgress(null); setPaused(false); setActiveJobId(null);
@@ -333,7 +333,7 @@ export default function SendPage() {
             {campaign && /\{(evento|data|horario|local)\}/i.test(campaign.text) && (
               <div className="card p-5 space-y-3">
                 <h2 className="text-sm font-semibold text-slate-900">2. Variáveis do envio</h2>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {VARS.filter((v) => new RegExp(`\\{${v}\\}`, 'i').test(campaign.text)).map((v) => (
                     <div key={v}>
                       <label className="block text-xs font-medium text-slate-700 mb-1 capitalize">{v}</label>
@@ -397,7 +397,7 @@ export default function SendPage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-white py-2 -mx-1 px-1">
                   <button type="button" onClick={selectAllFiltered} className="btn-secondary py-1.5 px-3 text-xs">
                     <CheckSquare className="w-3.5 h-3.5" />
                     Selecionar todos ({totalEligible.toLocaleString('pt-BR')})

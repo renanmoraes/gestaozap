@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Tag, StickyNote, User, Phone, Plus, Trash2 } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 import { formatPhone } from '../../utils/phone';
 import { formatDateBr, formatDateTimeBr } from '../../utils/timezone';
 
@@ -26,7 +28,7 @@ export default function ChatSidebar({ conversation, messages, onClose, onTagsCha
       onTagsChange?.(next);
     } catch (e) {
       setTags(tags); // revert
-      alert(e.response?.data?.error || 'Não foi possível salvar a tag.');
+      dialog.toast.error(apiErrorMessage(e, MSG.tagSaveFailed));
     }
   };
 

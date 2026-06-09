@@ -8,6 +8,7 @@ const { hashPassword, generateUniqueCompanyId } = require('../services/auth.serv
 const { generateUniqueSlug } = require('../utils/slug.util');
 const { validateDocument, onlyDigits } = require('../utils/document.util');
 const { sendSignupReceived } = require('../services/signup-email.service');
+const { parseCookies } = require('../utils/cookie.util');
 
 // POST /api/signup — pré-cadastro self-service (cria conta 'pending', sem contrato)
 router.post('/', async (req, res) => {
@@ -29,11 +30,15 @@ router.post('/', async (req, res) => {
     const [emailHit] = await db.select({ id: users.id }).from(users).where(eq(users.email, normEmail));
     if (emailHit) return res.status(409).json({ error: 'Email já cadastrado' });
 
-    // Afiliado (opcional)
+    // Afiliado (opcional) — cookie httpOnly prevalece sobre o body (código travado)
+    const cookies = parseCookies(req);
+    const lockedRef = cookies.gz_aff_ref ? String(cookies.gz_aff_ref).trim().toUpperCase() : null;
+    const resolvedAffiliateCode = lockedRef || (affiliateCode ? String(affiliateCode).trim().toUpperCase() : null);
+
     let affiliate = null;
-    if (affiliateCode) {
+    if (resolvedAffiliateCode) {
       [affiliate] = await db.select().from(affiliates)
-        .where(and(eq(affiliates.code, String(affiliateCode).toUpperCase()), eq(affiliates.active, true)));
+        .where(and(eq(affiliates.code, resolvedAffiliateCode), eq(affiliates.active, true)));
       if (!affiliate) return res.status(400).json({ error: 'Código de afiliado inválido' });
     }
 

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Image, Eye, ToggleLeft, ToggleRight, Info } from 'lucide-react';
 import api from '../api';
+import { dialog } from '../utils/dialog';
+import { MSG } from '../utils/messages';
 import { renderWhatsAppLikeText } from '../utils/whatsappFormat';
 import {
   CAMPAIGN_IMAGE_ACCEPT,
@@ -89,7 +91,7 @@ export default function Campaigns() {
   };
 
   const remove = async (id) => {
-    if (!confirm('Remover template?')) return;
+    if (!(await dialog.confirm({ title: 'Remover template', message: MSG.removeTemplate, danger: true }))) return;
     await api.delete(`/api/campaigns/${id}`); load();
   };
 

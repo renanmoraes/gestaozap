@@ -5,6 +5,8 @@ import {
   Eye, EyeOff, Upload,
 } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 
 const FIELDS = [
   { key: 'r2_account_id', label: 'Account ID',     placeholder: 'ex: abc123def456',         secret: false },
@@ -109,13 +111,13 @@ export default function AdminStorage() {
   };
 
   const startBackfill = async () => {
-    if (!confirm('Migrar todos os arquivos locais antigos para o R2?\n\nIsso pode levar alguns minutos. O processo roda em segundo plano.')) return;
+    if (!(await dialog.confirm({ title: 'Migrar para R2', message: MSG.migrateStorage }))) return;
     setBf(true);
     try {
       await api.post('/api/admin/storage/backfill');
-      alert('Migração iniciada em segundo plano. Acompanhe o progresso nos logs do servidor.');
+      dialog.toast.success(MSG.migrationStarted);
     } catch (err) {
-      alert(err.response?.data?.error || 'Erro ao iniciar');
+      dialog.toast.error(apiErrorMessage(err, 'Não conseguimos iniciar a migração.'));
     } finally {
       setBf(false);
     }

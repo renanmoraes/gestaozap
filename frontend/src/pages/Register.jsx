@@ -1,8 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Zap, Tag, AlertCircle, CheckCircle2, ArrowRight, Loader2, Clock } from 'lucide-react';
 import api from '../api';
 import { formatPhone, maskPhoneInput } from '../utils/phone';
+import {
+  persistAffiliateRef,
+  getPersistedAffiliateRef,
+  isAffiliateRefLocked,
+} from '../utils/affiliateRef';
 
 // Slugify espelhando o backend (apenas preview informativo).
 function slugify(name) {
@@ -36,10 +41,21 @@ function maskDocument(value, type) {
 export default function Register() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const refCode = params.get('ref')?.toUpperCase() || '';
+  const urlRef = params.get('ref')?.trim().toUpperCase() || '';
+
+  const refLocked = useMemo(
+    () => Boolean(urlRef) || isAffiliateRefLocked(),
+    [urlRef],
+  );
+
+  const lockedCode = useMemo(() => {
+    if (urlRef) return urlRef;
+    if (isAffiliateRefLocked()) return getPersistedAffiliateRef();
+    return '';
+  }, [urlRef]);
 
   const [affiliate, setAffiliate] = useState(null);
-  const [loadingRef, setLoadingRef] = useState(Boolean(refCode));
+  const [loadingRef, setLoadingRef] = useState(Boolean(lockedCode));
   const [refError, setRefError] = useState(null);
 
   const [form, setForm] = useState({
@@ -49,15 +65,26 @@ export default function Register() {
     registeredPhone: '',
     email: '',
     password: '',
-    affiliateCode: refCode,
+    affiliateCode: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [done, setDone] = useState(false);
 
+  const activeAffiliateCode = refLocked
+    ? lockedCode
+    : (form.affiliateCode || '').trim().toUpperCase();
+
+  // Persiste código travado e grava cookie httpOnly no backend.
+  useEffect(() => {
+    if (!lockedCode) return;
+    persistAffiliateRef(lockedCode);
+    api.get(`/api/affiliates/capture/${encodeURIComponent(lockedCode)}`).catch(() => {});
+  }, [lockedCode]);
+
   // Valida o código de afiliado para exibir o banner de indicação/desconto.
   useEffect(() => {
-    const code = (form.affiliateCode || '').toUpperCase();
+    const code = activeAffiliateCode;
     if (!code) { setAffiliate(null); setRefError(null); return; }
     setLoadingRef(true);
     setRefError(null);
@@ -68,7 +95,7 @@ export default function Register() {
         setRefError(err.response?.data?.error || 'Código inválido');
       })
       .finally(() => setLoadingRef(false));
-  }, [form.affiliateCode]);
+  }, [activeAffiliateCode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -81,7 +108,7 @@ export default function Register() {
         whatsapp: form.registeredPhone,
         email: form.email,
         password: form.password,
-        affiliateCode: form.affiliateCode.toUpperCase() || null,
+        affiliateCode: activeAffiliateCode || null,
       });
       setDone(true);
     } catch (err) {
@@ -115,7 +142,8 @@ export default function Register() {
 
   const slugPreview = slugify(form.name);
   const canSubmit = form.documentType && form.document && form.name
-    && form.registeredPhone && form.email && form.password.length >= 8;
+    && form.registeredPhone && form.email && form.password.length >= 8
+    && (!refLocked || (affiliate && !refError));
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -135,14 +163,25 @@ export default function Register() {
         {affiliate && (
           <div className="flex items-center gap-3 p-4 rounded-xl bg-brand-50 border border-brand-200 mb-5">
             <Tag className="w-5 h-5 text-brand-600 shrink-0" />
-            <div>
+            <div className="flex-1">
               <div className="text-sm font-semibold text-brand-800">
                 Indicação de {affiliate.name}
               </div>
               <div className="text-xs text-brand-600 mt-0.5">
-                Código <strong>{affiliate.code}</strong> — {affiliate.discountPct}% de desconto no primeiro mês
+                {affiliate.discountPct}% de desconto no primeiro mês
+                {refLocked && (
+                  <span className="ml-1 text-brand-500">· indicação vinculada a esta sessão</span>
+                )}
               </div>
             </div>
+            {loadingRef && <Loader2 className="w-4 h-4 text-brand-500 animate-spin shrink-0" />}
+            {!loadingRef && affiliate && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
+          </div>
+        )}
+
+        {refLocked && refError && (
+          <div className="flex gap-2 p-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm mb-5">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />{refError}
           </div>
         )}
 
@@ -253,23 +292,25 @@ export default function Register() {
               />
             </div>
 
-            {/* Código de afiliado */}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                Código de afiliado <span className="text-slate-400 font-normal">(opcional)</span>
-              </label>
-              <div className="flex gap-2">
-                <input
-                  className="input flex-1 font-mono uppercase"
-                  placeholder="EX: JOAO25"
-                  value={form.affiliateCode}
-                  onChange={(e) => setForm({ ...form, affiliateCode: e.target.value.toUpperCase() })}
-                />
-                {loadingRef && <Loader2 className="w-5 h-5 text-slate-400 mt-2.5 animate-spin" />}
-                {affiliate && <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-2.5" />}
+            {/* Código de afiliado — só exibe quando não veio por link de indicação */}
+            {!refLocked && (
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                  Código de afiliado <span className="text-slate-400 font-normal">(opcional)</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1 font-mono uppercase"
+                    placeholder="EX: JOAO25"
+                    value={form.affiliateCode}
+                    onChange={(e) => setForm({ ...form, affiliateCode: e.target.value.toUpperCase() })}
+                  />
+                  {loadingRef && <Loader2 className="w-5 h-5 text-slate-400 mt-2.5 animate-spin" />}
+                  {affiliate && <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-2.5" />}
+                </div>
+                {refError && <p className="text-xs text-red-500 mt-1">{refError}</p>}
               </div>
-              {refError && <p className="text-xs text-red-500 mt-1">{refError}</p>}
-            </div>
+            )}
 
             <button
               type="submit"

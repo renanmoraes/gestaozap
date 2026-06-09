@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Save, RefreshCw, Settings } from 'lucide-react';
 import api from '../../api';
+import { dialog } from '../../utils/dialog';
+import { apiErrorMessage, MSG } from '../../utils/messages';
 
 const CONFIG_LABELS = {
   batch_size:               { label: 'Tamanho do lote', desc: 'Mensagens por lote antes da pausa anti-ban', type: 'number' },
@@ -43,7 +45,7 @@ export default function AdminConfig() {
       setSaved((s) => ({ ...s, [key]: true }));
       setTimeout(() => setSaved((s) => ({ ...s, [key]: false })), 2000);
     } catch (err) {
-      alert(err.response?.data?.error || 'Erro ao salvar');
+      dialog.toast.error(apiErrorMessage(err, MSG.adminSaveFailed));
     } finally {
       setSaving((s) => ({ ...s, [key]: false }));
     }

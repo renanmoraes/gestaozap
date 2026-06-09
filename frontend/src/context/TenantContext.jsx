@@ -136,6 +136,7 @@ export function TenantProvider({ children }) {
     <TenantContext.Provider value={{
       tenant, authToken, waStatus, wrongPhone, isLoading, mustChangePwd,
       isAuthenticated: Boolean(authToken && tenant),
+      isAffiliate: Boolean(tenant?.isAffiliate),
       login, logout, acceptTerms,
       slug: getSlugFromHostname(),
     }}>

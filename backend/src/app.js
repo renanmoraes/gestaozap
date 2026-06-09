@@ -19,7 +19,7 @@ io.on('connection', (socket) => {
   socket.join(tenantId);
 });
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 // Limite generoso — importação de contatos do WhatsApp pode trazer milhares.
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -86,6 +86,7 @@ app.use('/api/queue', tenantResolver, authGuard, require('./routes/queue.routes'
 app.use('/api/backup', tenantResolver, authGuard, require('./routes/backup.routes'));
 app.use('/api/billing', tenantResolver, authGuard, require('./routes/billing.routes'));
 app.use('/api/usage', tenantResolver, authGuard, require('./routes/usage.routes'));
+app.use('/api/affiliate', tenantResolver, authGuard, require('./routes/affiliate-portal.routes'));
 app.use('/api/chats', tenantResolver, authGuard, require('./routes/chats.routes'));
 app.use('/api/quick-replies', tenantResolver, authGuard, require('./routes/quick-replies.routes'));
 

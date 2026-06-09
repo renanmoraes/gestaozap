@@ -326,6 +326,10 @@ async function runMigrations(pool) {
     await client.query(`UPDATE plans SET overage_price_brl = 0.08, max_concurrent_sends = 3 WHERE slug = 'pro';`);
     await client.query(`UPDATE plans SET overage_price_brl = NULL, max_concurrent_sends = 10 WHERE slug = 'business';`);
 
+    // Afiliado vinculado a cliente da plataforma (portal self-service)
+    await client.query(`ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE SET NULL;`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_affiliate_tenant ON affiliates(tenant_id) WHERE tenant_id IS NOT NULL;`);
+
     // Rastreio de dispatch (envios simultâneos + continuações)
     await client.query(`ALTER TABLE send_logs ADD COLUMN IF NOT EXISTS dispatch_id UUID;`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_send_logs_tenant_dispatch ON send_logs(tenant_id, dispatch_id) WHERE dispatch_id IS NOT NULL;`);

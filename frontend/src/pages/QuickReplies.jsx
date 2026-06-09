@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import { formatTemplateDateBr, formatTemplateTimeBr } from '../utils/timezone';
+import { dialog } from '../utils/dialog';
+import { MSG } from '../utils/messages';
 
 const VARS_BUILTIN = [
   { tag: '{nome}',     desc: 'Nome do contato com quem você está conversando',  auto: true },
@@ -246,7 +248,7 @@ export default function QuickReplies() {
   };
 
   const remove = async (r) => {
-    if (!confirm(`Remover a mensagem rápida ${r.shortcut}?`)) return;
+    if (!(await dialog.confirm({ title: 'Remover mensagem rápida', message: MSG.removeQuickReply(r.shortcut), danger: true }))) return;
     await api.delete(`/api/quick-replies/${r.id}`);
     load();
   };

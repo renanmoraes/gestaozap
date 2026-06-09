@@ -9,14 +9,16 @@ import {
   confirmSendOutsideHours,
 } from '../utils/hours';
 import { formatDateTimeBr } from '../utils/timezone';
+import { dialog } from '../utils/dialog';
+import { apiErrorMessage, MSG } from '../utils/messages';
 
-function buildHoursPayload() {
+async function buildHoursPayload() {
   const hourStart = DEFAULT_HOUR_START;
   const hourEnd = DEFAULT_HOUR_END;
   const h = getCurrentHourBr();
   let ignoreHours = false;
   if (isOutsideRecommendedHours(h, hourStart, hourEnd)) {
-    if (!confirmSendOutsideHours(hourStart, hourEnd)) return null;
+    if (!(await confirmSendOutsideHours(hourStart, hourEnd))) return null;
     ignoreHours = true;
   }
   return { hourStart, hourEnd, ignoreHours };
@@ -170,7 +172,7 @@ export default function History() {
         return ok ? { ...prev, campaignId: normalizeCampaignId(prev.campaignId) } : pickFirst();
       });
     } catch (e) {
-      alert(e.response?.data?.error || e.message || 'Falha ao carregar histórico');
+      dialog.toast.error(apiErrorMessage(e, MSG.historyLoadFailed));
     } finally {
       setLoading(false);
     }
@@ -273,23 +275,23 @@ export default function History() {
   }, [selectedRun?.campaignId, selectedRun?.runId]);
 
   const retryFailed = async (campaignId, runId) => {
-    const hours = buildHoursPayload();
+    const hours = await buildHoursPayload();
     if (!hours) return;
     try {
       const { data } = await api.post(`/api/logs/${campaignId}/retry-failed`, { ...hours, runId });
-      if (!data.jobId) { alert(data.message || 'Nenhuma falha para reenviar.'); return; }
+      if (!data.jobId) { dialog.toast.info(data.message || 'Nenhuma falha para reenviar.'); return; }
       const k = runKey(campaignId, runId);
       setLogsByRun((prev) => { const next = { ...prev }; delete next[k]; return next; });
       setLogsFetchErrorByKey((prev) => { const next = { ...prev }; delete next[k]; return next; });
       await loadHistoryIndex();
       await loadRecipients(campaignId, runId);
     } catch (e) {
-      alert(e.response?.data?.error || e.message || 'Falha ao enfileirar reenvio');
+      dialog.toast.error(apiErrorMessage(e, MSG.retryEnqueueFailed));
     }
   };
 
   const retryOne = async (campaignId, runId, logId) => {
-    const hours = buildHoursPayload();
+    const hours = await buildHoursPayload();
     if (!hours) return;
     try {
       await api.post(`/api/logs/${campaignId}/retry/${logId}`, hours);
@@ -299,7 +301,7 @@ export default function History() {
       await loadHistoryIndex();
       await loadRecipients(campaignId, runId);
     } catch (e) {
-      alert(e.response?.data?.error || e.message || 'Falha ao reenviar');
+      dialog.toast.error(apiErrorMessage(e, MSG.retryFailed));
     }
   };
 
@@ -313,7 +315,7 @@ export default function History() {
         [k]: { ...data, snapshotAt: data.snapshotAt || new Date().toISOString() },
       }));
     } catch (e) {
-      alert(e.response?.data?.error || e.message || 'Falha ao buscar feedback');
+      dialog.toast.error(apiErrorMessage(e, MSG.feedbackFailed));
     } finally {
       setAnalyzingKey(null);
     }
