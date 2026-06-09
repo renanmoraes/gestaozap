@@ -50,13 +50,17 @@ function FeatureTeaser({ onRequest, requesting }) {
 
 function StatCard({ icon: Icon, label, value, tone = 'rose' }) {
   const tones = {
-    rose: 'background:#fff1f2;color:#be123c',
-    emerald: 'background:#ecfdf5;color:#047857',
-    amber: 'background:#fffbeb;color:#b45309',
+    rose: { background: '#fff1f2', color: '#be123c' },
+    emerald: { background: '#ecfdf5', color: '#047857' },
+    amber: { background: '#fffbeb', color: '#b45309' },
   };
+  const toneStyle = tones[tone] || tones.rose;
+  // #region agent log
+  fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2819bc'},body:JSON.stringify({sessionId:'2819bc',runId:'post-fix',location:'Promotions.jsx:StatCard',message:'StatCard render',data:{tone,styleType:typeof toneStyle},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   return (
     <div className="promotions-stat">
-      <div className="promotions-stat-icon" style={tones[tone]}>
+      <div className="promotions-stat-icon" style={toneStyle}>
         <Icon className="w-4 h-4" />
       </div>
       <div className="promotions-stat-value">{value}</div>
@@ -121,6 +125,9 @@ export default function Promotions() {
     try {
       const statusRes = await api.get('/api/features/status');
       setFeature(statusRes.data);
+      // #region agent log
+      fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2819bc'},body:JSON.stringify({sessionId:'2819bc',location:'Promotions.jsx:load',message:'feature status loaded',data:{active:statusRes.data?.active,reason:statusRes.data?.reason},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       if (statusRes.data.active) {
         const [promoRes, layoutRes, analyticsRes] = await Promise.all([
           api.get('/api/promotions'),
@@ -130,6 +137,9 @@ export default function Promotions() {
         setPromotions(promoRes.data);
         setLayouts(layoutRes.data);
         setAnalytics(analyticsRes.data);
+        // #region agent log
+        fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2819bc'},body:JSON.stringify({sessionId:'2819bc',location:'Promotions.jsx:load',message:'analytics loaded — StatCard will render',data:{views:analyticsRes.data?.views},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
       }
     } catch (e) {
       if (e.response?.status !== 403) dialog.alert(apiErrorMessage(e));
@@ -192,6 +202,9 @@ export default function Promotions() {
   }
 
   if (!feature?.active) {
+    // #region agent log
+    fetch('http://127.0.0.1:7724/ingest/bad965a0-035a-443e-b04a-77662340ce52',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2819bc'},body:JSON.stringify({sessionId:'2819bc',location:'Promotions.jsx:render',message:'rendering FeatureTeaser (inactive)',data:{active:feature?.active},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     return (
       <div className="promotions-page">
         <FeatureTeaser onRequest={requestFeature} requesting={requesting} />
