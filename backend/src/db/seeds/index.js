@@ -123,6 +123,16 @@ const DEFAULT_FEATURES = [
     active: true,
     billing_day: 5,
   },
+  {
+    slug: 'agendamentos',
+    name: 'Agendamentos',
+    description: 'Página pública /agendar, reservas 1:1 e atalhos no WhatsApp.',
+    price_brl: '0',
+    is_free: true,
+    is_system: true,
+    active: true,
+    billing_day: 5,
+  },
 ];
 
 async function seedFeatures(pool) {

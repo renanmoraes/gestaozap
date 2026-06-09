@@ -7,6 +7,8 @@ import api from '../../api';
 import { dialog } from '../../utils/dialog';
 import { apiErrorMessage, MSG } from '../../utils/messages';
 import QuickReplyPicker from './QuickReplyPicker';
+import ProductHashtagPicker from './ProductHashtagPicker';
+import BookingLinkModal from './BookingLinkModal';
 import {
   CHAT_ACCEPT,
   CHAT_UPLOAD_HINT,
@@ -23,12 +25,19 @@ function iconForFile(file) {
   return FileText;
 }
 
-export default function MessageInput({ chatId, contactName, onOptimisticSend, onNote, disabled, replies, onUseReply }) {
+export default function MessageInput({
+  chatId, contactName, onOptimisticSend, onNote, disabled, replies, onUseReply,
+  bookingEnabled = false, promotionLinksEnabled = false,
+}) {
   const [body, setBody]           = useState('');
   const [file, setFile]           = useState(null);
   const [fileError, setFileError] = useState('');
   const [isNote, setIsNote]       = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [showHashtagPicker, setShowHashtagPicker] = useState(false);
+  const [hashtagItems, setHashtagItems] = useState([]);
+  const [hashtagIndex, setHashtagIndex] = useState(0);
+  const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [sending, setSending]     = useState(false);
   const taRef = useRef(null);
@@ -44,12 +53,30 @@ export default function MessageInput({ chatId, contactName, onOptimisticSend, on
   // Foco ao trocar de conversa
   useEffect(() => {
     taRef.current?.focus();
-    setBody(''); setFile(null); setFileError(''); setIsNote(false); setShowPicker(false);
+    setBody(''); setFile(null); setFileError(''); setIsNote(false);
+    setShowPicker(false); setShowHashtagPicker(false); setBookingModalOpen(false);
   }, [chatId]);
+
+  useEffect(() => {
+    if (!promotionLinksEnabled || isNote) {
+      setShowHashtagPicker(false);
+      return;
+    }
+    const hashMatch = body.match(/#([a-zA-Z0-9_-]*)$/);
+    if (hashMatch) {
+      setShowHashtagPicker(true);
+      setHashtagIndex(0);
+      api.get('/api/promotions/share-links')
+        .then((r) => setHashtagItems(r.data || []))
+        .catch(() => setHashtagItems([]));
+    } else {
+      setShowHashtagPicker(false);
+    }
+  }, [body, isNote, promotionLinksEnabled]);
 
   // Detecta "/" no início → abre QuickReplyPicker
   useEffect(() => {
-    const open = body.startsWith('/') && !isNote;
+    const open = body.startsWith('/') && !body.includes(' ') && !isNote && body !== '/agendar';
     setShowPicker(open);
     if (open) setActiveIndex(0);
   }, [body, isNote]);
@@ -72,7 +99,55 @@ export default function MessageInput({ chatId, contactName, onOptimisticSend, on
     });
   };
 
+  const applyHashtag = (item) => {
+    const base = body.replace(/#([a-zA-Z0-9_-]*)$/, '').trimEnd();
+    const next = base ? `${base} ${item.message}` : item.message;
+    setBody(next);
+    setShowHashtagPicker(false);
+    requestAnimationFrame(() => taRef.current?.focus());
+  };
+
+  const sendTextMessage = async (text) => {
+    const optimisticId = `tmp-${Date.now()}`;
+    onOptimisticSend?.({
+      id: optimisticId,
+      direction: 'out',
+      body: text,
+      status: 'queued',
+      waTimestamp: new Date().toISOString(),
+      hasMedia: false,
+      mediaType: null,
+    });
+    const formData = new FormData();
+    formData.append('body', text);
+    await api.post(`/api/chats/${chatId}/messages`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    setBody('');
+  };
+
   const handleKey = (e) => {
+    if (showHashtagPicker && hashtagItems.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setHashtagIndex((i) => Math.min(i + 1, hashtagItems.length - 1)); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setHashtagIndex((i) => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const q = (body.match(/#([a-zA-Z0-9_-]*)$/)?.[1] || '').toLowerCase();
+        const list = q
+          ? hashtagItems.filter((r) => r.hashtag.toLowerCase().includes(q) || r.title.toLowerCase().includes(q))
+          : hashtagItems;
+        if (list[hashtagIndex]) {
+          e.preventDefault();
+          applyHashtag(list[hashtagIndex]);
+          return;
+        }
+      }
+      if (e.key === 'Escape') { e.preventDefault(); setShowHashtagPicker(false); return; }
+    }
+    if (bookingEnabled && !isNote && body.trim().toLowerCase() === '/agendar' && e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      setBookingModalOpen(true);
+      return;
+    }
     if (showPicker && replies?.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => Math.min(i + 1, replies.length - 1)); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); return; }
@@ -115,6 +190,11 @@ export default function MessageInput({ chatId, contactName, onOptimisticSend, on
     if (sending || disabled || fileError) return;
     const text = body.trim();
     if (!text && !file) return;
+
+    if (bookingEnabled && !isNote && text.toLowerCase() === '/agendar') {
+      setBookingModalOpen(true);
+      return;
+    }
 
     setSending(true);
     try {
@@ -201,6 +281,17 @@ export default function MessageInput({ chatId, contactName, onOptimisticSend, on
       )}
 
       <div className="relative flex items-end gap-2">
+        {showHashtagPicker && promotionLinksEnabled && hashtagItems.length > 0 && (
+          <ProductHashtagPicker
+            items={hashtagItems}
+            query={body}
+            activeIndex={hashtagIndex}
+            setActiveIndex={setHashtagIndex}
+            onPick={applyHashtag}
+            onClose={() => setShowHashtagPicker(false)}
+          />
+        )}
+
         {showPicker && replies?.length > 0 && (
           <QuickReplyPicker
             replies={replies}
@@ -256,7 +347,7 @@ export default function MessageInput({ chatId, contactName, onOptimisticSend, on
               ? 'WhatsApp desconectado'
               : isNote
                 ? 'Escreva uma nota interna (só você vê)'
-                : 'Mensagem — Enter para enviar · Shift+Enter para quebrar linha · / para mensagens rápidas'
+                : 'Mensagem — /agendar link · # promo · Enter envia'
           }
           className="flex-1 resize-none px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none disabled:bg-slate-50 disabled:text-slate-400 max-h-40"
         />
@@ -274,6 +365,23 @@ export default function MessageInput({ chatId, contactName, onOptimisticSend, on
           <Send className="w-4 h-4" />
         </button>
       </div>
+
+      <BookingLinkModal
+        open={bookingModalOpen}
+        onClose={() => { setBookingModalOpen(false); setBody(''); }}
+        contactName={contactName}
+        onConfirm={async (text) => {
+          setBookingModalOpen(false);
+          setSending(true);
+          try {
+            await sendTextMessage(text);
+          } catch (err) {
+            dialog.toast.error(apiErrorMessage(err, MSG.sendFailed));
+          } finally {
+            setSending(false);
+          }
+        }}
+      />
 
       {!isNote && (
         <p className="mt-2 text-[10px] text-slate-400 leading-snug">

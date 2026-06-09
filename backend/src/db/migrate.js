@@ -657,6 +657,124 @@ async function runMigrations(pool) {
       ALTER TABLE tenants ADD COLUMN IF NOT EXISTS profile_json JSONB NOT NULL DEFAULT '{}';
     `);
 
+    // Agendamentos 1:1
+    await client.query(`CREATE EXTENSION IF NOT EXISTS btree_gist;`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS booking_pages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+        slug VARCHAR(80) NOT NULL DEFAULT 'default',
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        is_published BOOLEAN NOT NULL DEFAULT true,
+        timezone VARCHAR(64) NOT NULL DEFAULT 'America/Sao_Paulo',
+        operator_notify_before_min INTEGER NOT NULL DEFAULT 15,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS event_types (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_page_id UUID NOT NULL REFERENCES booking_pages(id) ON DELETE CASCADE,
+        name VARCHAR(120) NOT NULL,
+        slug VARCHAR(80) NOT NULL,
+        duration_min INTEGER NOT NULL DEFAULT 30,
+        buffer_before_min INTEGER NOT NULL DEFAULT 0,
+        buffer_after_min INTEGER NOT NULL DEFAULT 0,
+        min_notice_min INTEGER NOT NULL DEFAULT 120,
+        max_advance_days INTEGER NOT NULL DEFAULT 60,
+        max_daily_bookings INTEGER,
+        location_type VARCHAR(30) DEFAULT 'whatsapp',
+        location_value TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(booking_page_id, slug)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS availability_rules (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        weekday SMALLINT NOT NULL CHECK (weekday >= 0 AND weekday <= 6),
+        start_local_time VARCHAR(5) NOT NULL,
+        end_local_time VARCHAR(5) NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_availability_rules_tenant_weekday
+        ON availability_rules(tenant_id, weekday) WHERE is_active = true;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS availability_exceptions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        date_local VARCHAR(10) NOT NULL,
+        mode VARCHAR(20) NOT NULL DEFAULT 'closed',
+        start_local_time VARCHAR(5),
+        end_local_time VARCHAR(5),
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS manual_blocks (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        starts_at TIMESTAMPTZ NOT NULL,
+        ends_at TIMESTAMPTZ NOT NULL,
+        all_day BOOLEAN NOT NULL DEFAULT false,
+        reason TEXT,
+        created_by UUID,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS bookings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        booking_page_id UUID NOT NULL REFERENCES booking_pages(id) ON DELETE CASCADE,
+        event_type_id UUID NOT NULL REFERENCES event_types(id) ON DELETE RESTRICT,
+        conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+        invitee_name VARCHAR(255) NOT NULL,
+        invitee_email VARCHAR(255) NOT NULL,
+        invitee_timezone VARCHAR(64) NOT NULL DEFAULT 'America/Sao_Paulo',
+        starts_at TIMESTAMPTZ NOT NULL,
+        ends_at TIMESTAMPTZ NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'confirmed',
+        public_token VARCHAR(64) NOT NULL UNIQUE,
+        operator_notified_at TIMESTAMPTZ,
+        cancel_reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_bookings_tenant_starts
+        ON bookings(tenant_id, starts_at);
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE bookings ADD CONSTRAINT bookings_no_overlap
+          EXCLUDE USING gist (
+            tenant_id WITH =,
+            tstzrange(starts_at, ends_at, '[)') WITH &&
+          ) WHERE (status IN ('confirmed', 'pending'));
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+    await client.query(`
+      ALTER TABLE promotions ADD COLUMN IF NOT EXISTS share_code VARCHAR(40);
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_promotions_tenant_share_code
+        ON promotions(tenant_id, share_code) WHERE share_code IS NOT NULL;
+    `);
+
     await client.query('COMMIT');
     console.log('[db] migrations completed');
   } catch (err) {
@@ -703,6 +821,8 @@ async function main() {
     await seedFeatures(pool);
     await seedPromotionLayouts(pool);
     await seedAdminCompanyAndUser(pool);
+    const { backfillAllTenants } = require('../services/booking-bootstrap.service');
+    await backfillAllTenants(pool);
     console.log('[db] setup completo');
   } finally {
     await pool.end();

@@ -91,8 +91,10 @@ app.use('/api/chats', tenantResolver, authGuard, require('./routes/chats.routes'
 app.use('/api/quick-replies', tenantResolver, authGuard, require('./routes/quick-replies.routes'));
 app.use('/api/features', tenantResolver, authGuard, require('./routes/features.routes'));
 app.use('/api/promotions', tenantResolver, authGuard, require('./routes/promotions.routes'));
+app.use('/api/bookings', tenantResolver, authGuard, require('./routes/bookings.routes'));
 app.use('/api/tenant/profile', tenantResolver, authGuard, require('./routes/tenant-profile.routes'));
 app.use('/api/public/promotions', tenantResolver, require('./routes/public-promotions.routes'));
+app.use('/api/public/bookings', tenantResolver, require('./routes/public-bookings.routes'));
 
 app.set('io', io);
 
@@ -104,6 +106,7 @@ const { startConfigPoller } = require('./config/platform');
 const { scheduleContractExpiryCheck } = require('./cron/contractExpiry');
 const { scheduleOverageBilling } = require('./cron/overageBilling');
 const { schedulePromotionExpiryCheck } = require('./cron/promotionExpiry');
+const { scheduleBookingUpcomingAlerts } = require('./cron/bookingUpcoming');
 const { setIo } = require('./config/registry');
 
 if (require.main === module) {
@@ -115,6 +118,7 @@ if (require.main === module) {
     scheduleContractExpiryCheck();
     scheduleOverageBilling();
     schedulePromotionExpiryCheck();
+    scheduleBookingUpcomingAlerts();
     server.listen(PORT, () => console.log(`Backend running on :${PORT}`));
 
     // Auto-restaura sessões WhatsApp que estavam ativas (usa cache do LocalAuth).

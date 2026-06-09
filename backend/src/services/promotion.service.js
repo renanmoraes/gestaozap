@@ -135,12 +135,16 @@ async function createPromotion(db, tenantId, data) {
   if (!layout) throw new Error('Layout não encontrado');
 
   const contentJson = enrichContent(data.contentJson || {}, layout.schemaJson);
+  const { suggestShareCode } = require('./promotion-share.service');
+  const existing = await db.select({ id: promotions.id }).from(promotions).where(eq(promotions.tenantId, tenantId));
+  const shareCode = data.shareCode || suggestShareCode(data.title || 'Promocao', existing.length + 1);
 
   const [promo] = await db.insert(promotions).values({
     tenantId,
     layoutId: data.layoutId,
     title: data.title || 'Nova promoção',
     status: data.status || 'draft',
+    shareCode,
     startsAt: data.startsAt ? new Date(data.startsAt) : null,
     expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
     contentJson,
@@ -168,6 +172,7 @@ async function updatePromotion(db, tenantId, promotionId, data) {
   if (data.expiresAt !== undefined) patch.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
   if (data.contentJson !== undefined) patch.contentJson = contentJson;
   if (data.layoutId !== undefined) patch.layoutId = data.layoutId;
+  if (data.shareCode !== undefined) patch.shareCode = data.shareCode || null;
 
   const [promo] = await db.update(promotions)
     .set(patch)

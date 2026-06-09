@@ -170,6 +170,15 @@ export default function PromotionVitrinePublic() {
     });
   }, [data]);
 
+  useEffect(() => {
+    if (!data?.promotions?.length) return;
+    const hash = window.location.hash.replace(/^#/, '');
+    if (!hash) return;
+    requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [data]);
+
   const handleCta = useCallback((promotion, itemId) => {
     const slot = promotion.slots?.find((s) => s.slotKey === itemId);
     const items = promotion.contentJson?.items || [];
@@ -222,7 +231,7 @@ export default function PromotionVitrinePublic() {
           </div>
         ) : (
           data.promotions.map((promo) => (
-            <article key={promo.id} className="promo-promotion-block">
+            <article key={promo.id} id={promo.shareCode || undefined} className="promo-promotion-block">
               <h2 className="promo-promotion-title">{promo.title}</h2>
               <PromotionLayoutRenderer
                 promotion={promo}

@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useSearchParams, useNavigate } from '
 import {
   Smartphone, Users, FileText, Send, Clock, BarChart2, Database,
   ChevronLeft, ChevronRight, Zap, CreditCard, LogOut,
-  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles, UserCircle,
+  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles, UserCircle, Calendar,
 } from 'lucide-react';
 import MobileShell from './components/layout/MobileShell';
 import MobileWaBlock from './components/MobileWaBlock';
@@ -36,6 +36,8 @@ import Promotions from './pages/Promotions';
 import Profile from './pages/Profile';
 import ChangePassword from './pages/ChangePassword';
 import PromotionVitrinePublic from './pages/promotions/PromotionVitrinePublic';
+import Bookings from './pages/Bookings';
+import BookingAlerts from './components/bookings/BookingAlerts';
 
 import Register from './pages/Register';
 import Affiliate from './pages/Affiliate';
@@ -154,7 +156,7 @@ function AdminApp({ basePath = '' }) {
 
 /* ─── App Tenant ──────────────────────────────────────────── */
 
-function buildTenantNavSections(isAffiliate, hasPromotions) {
+function buildTenantNavSections(isAffiliate, hasPromotions, hasBookings) {
   const sections = [
     {
       label: 'Conexão',
@@ -168,6 +170,7 @@ function buildTenantNavSections(isAffiliate, hasPromotions) {
         { to: '/chat', label: 'Conversas', icon: MessageCircle },
         { to: '/contacts', label: 'Contatos', icon: Users },
         { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
+        ...(hasBookings ? [{ to: '/bookings', label: 'Agendamentos', icon: Calendar }] : []),
       ],
     },
     {
@@ -225,7 +228,8 @@ function TenantLayout({ basePath = '' }) {
   const isMobile = useIsMobile();
   const prefix = basePath.replace(/\/$/, '');
   const hasPromotions = hasFeature('vitrine-promocoes');
-  const tenantNavSections = buildTenantNavSections(isAffiliate, hasPromotions);
+  const hasBookings = hasFeature('agendamentos');
+  const tenantNavSections = buildTenantNavSections(isAffiliate, hasPromotions, hasBookings);
 
   if (window.location.pathname === `${prefix}/registrar` || window.location.pathname === '/registrar') {
     return <Register />;
@@ -236,6 +240,21 @@ function TenantLayout({ basePath = '' }) {
     || window.location.pathname === '/promocao-do-dia'
   ) {
     return <PromotionVitrinePublic />;
+  }
+
+  if (
+    window.location.pathname === `${prefix}/agendar`
+    || window.location.pathname === '/agendar'
+  ) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="card p-8 max-w-md text-center">
+          <Calendar className="w-10 h-10 text-brand-600 mx-auto mb-3" />
+          <h1 className="text-lg font-semibold text-slate-900">Agendamento online</h1>
+          <p className="text-sm text-slate-600 mt-2">Página pública em construção (M2). Use o painel Agendamentos ou envie o link pelo chat com <code>/agendar</code>.</p>
+        </div>
+      </div>
+    );
   }
 
   if (isLoading) {
@@ -325,6 +344,7 @@ function TenantLayout({ basePath = '' }) {
 
   return (
     <MobileShell prefix={prefix} sidebar={sidebar}>
+      <BookingAlerts />
       <Routes>
         <Route path={`${prefix}/`} element={
           <MobileWaBlock title="Conexão WhatsApp">
@@ -351,6 +371,7 @@ function TenantLayout({ basePath = '' }) {
         <Route path={`${prefix}/backup`} element={<Backup />} />
         <Route path={`${prefix}/billing`} element={<Billing />} />
         <Route path={`${prefix}/profile`} element={<Profile />} />
+        <Route path={`${prefix}/bookings`} element={<Bookings />} />
         <Route path={`${prefix}/change-password`} element={<ChangePasswordPage />} />
         <Route path={`${prefix}/affiliate`} element={<AffiliateRoute isAffiliate={isAffiliate} prefix={prefix} />} />
         <Route path="*" element={<Navigate to={defaultRoute} replace />} />

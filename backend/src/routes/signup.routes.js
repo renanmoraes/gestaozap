@@ -9,6 +9,7 @@ const { generateUniqueSlug } = require('../utils/slug.util');
 const { validateDocument, onlyDigits } = require('../utils/document.util');
 const { sendSignupReceived } = require('../services/signup-email.service');
 const { parseCookies } = require('../utils/cookie.util');
+const { ensureBookingSetup } = require('../services/booking-bootstrap.service');
 
 // POST /api/signup — pré-cadastro self-service (cria conta 'pending', sem contrato)
 router.post('/', async (req, res) => {
@@ -80,6 +81,9 @@ router.post('/', async (req, res) => {
           status: 'pending',
         });
       }
+
+      await ensureBookingSetup(tx, { tenantId: tenant.id, tenantName: tenant.name });
+
       return { tenant };
     });
 

@@ -189,6 +189,9 @@ router.post('/tenants/:id/approve', async (req, res) => {
         isTrial: !lifetime,
         now,
       });
+
+      const { ensureBookingSetup } = require('../services/booking-bootstrap.service');
+      await ensureBookingSetup(tx, { tenantId: tenant.id, tenantName: tenant.name });
     });
 
     const expiresAt = contractResult.expiresAt;

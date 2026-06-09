@@ -10,10 +10,12 @@ import MessageInput from '../components/chat/MessageInput';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import TemplateSendPicker from '../components/chat/TemplateSendPicker';
 import EmptyChat from '../components/chat/EmptyChat';
+import { useTenant } from '../context/TenantContext';
 
 export default function Chat() {
   const { chatId } = useParams();
   const navigate = useNavigate();
+  const { hasFeature } = useTenant();
 
   // Filtros da lista
   const [search, setSearch]         = useState('');
@@ -113,6 +115,8 @@ export default function Chat() {
               onNote={handleNote}
               replies={quickReplies}
               onUseReply={handleUseReply}
+              bookingEnabled={hasFeature('agendamentos')}
+              promotionLinksEnabled={hasFeature('vitrine-promocoes')}
             />
           </>
         )}

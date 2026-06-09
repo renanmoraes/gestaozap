@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   Send, FileText, Users, Clock, MoreHorizontal, X, Zap, LogOut,
   BarChart2, Database, CreditCard, Sparkles, UserCircle,
-  UserCheck, MessageCircle, Smartphone,
+  UserCheck, MessageCircle, Smartphone, Calendar,
 } from 'lucide-react';
 import { useTenant } from '../../context/TenantContext';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -15,7 +15,7 @@ const BOTTOM_NAV = [
   { to: '/queue', label: 'Fila', icon: Clock },
 ];
 
-function MoreMenu({ open, onClose, prefix, extraItems, showPromotions }) {
+function MoreMenu({ open, onClose, prefix, extraItems, showPromotions, showBookings }) {
   if (!open) return null;
 
   const sections = [
@@ -30,6 +30,7 @@ function MoreMenu({ open, onClose, prefix, extraItems, showPromotions }) {
       label: 'Atendimento',
       items: [
         { to: '/quick-replies', label: 'Mensagens rápidas', icon: Zap },
+        ...(showBookings ? [{ to: '/bookings', label: 'Agendamentos', icon: Calendar }] : []),
       ],
     },
     {
@@ -104,6 +105,7 @@ export default function MobileShell({ children, prefix, sidebar }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const location = useLocation();
   const showPromotions = hasFeature('vitrine-promocoes');
+  const showBookings = hasFeature('agendamentos');
 
   if (!isMobile) {
     return (
@@ -120,7 +122,7 @@ export default function MobileShell({ children, prefix, sidebar }) {
   }
 
   const isMoreActive = [
-    '/', '/chat', '/quick-replies', '/history', '/billing', '/backup', '/profile', '/affiliate',
+    '/', '/chat', '/quick-replies', '/bookings', '/history', '/billing', '/backup', '/profile', '/affiliate',
     ...(showPromotions ? ['/promotions'] : []),
   ].some((p) => {
     const full = `${prefix}${p}`;
@@ -185,6 +187,7 @@ export default function MobileShell({ children, prefix, sidebar }) {
         prefix={prefix}
         extraItems={extraItems}
         showPromotions={showPromotions}
+        showBookings={showBookings}
       />
     </div>
   );

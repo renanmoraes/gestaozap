@@ -250,6 +250,7 @@ async function removeLogo(db, tenantId) {
 }
 
 module.exports = {
+  defaultBusinessHours,
   defaultProfile,
   normalizeProfile,
   buildPublicProfile,

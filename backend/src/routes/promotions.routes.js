@@ -82,6 +82,20 @@ router.get('/analytics', async (req, res) => {
   }
 });
 
+router.get('/share-links', async (req, res) => {
+  try {
+    const db = getDb();
+    const tenantId = getTenantId(req);
+    const baseOrigin = `${req.protocol}://${req.get('host')}`;
+    const { listPromotionShareLinks } = require('../services/promotion-share.service');
+    const links = await listPromotionShareLinks(db, tenantId, baseOrigin);
+    res.json(links);
+  } catch (err) {
+    console.error('promotions/share-links:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const db = getDb();

@@ -359,6 +359,7 @@ const promotions = pgTable('promotions', {
   layoutId: uuid('layout_id').notNull().references(() => promotionLayouts.id),
   title: varchar('title', { length: 255 }).notNull(),
   status: varchar('status', { length: 20 }).notNull().default('draft'),
+  shareCode: varchar('share_code', { length: 40 }),
   startsAt: timestamp('starts_at', { withTimezone: true }),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   contentJson: jsonb('content_json').notNull().default({}),
@@ -400,6 +401,89 @@ const promotionLeads = pgTable('promotion_leads', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+const bookingPages = pgTable('booking_pages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().unique().references(() => tenants.id, { onDelete: 'cascade' }),
+  slug: varchar('slug', { length: 80 }).notNull().default('default'),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  isPublished: boolean('is_published').notNull().default(true),
+  timezone: varchar('timezone', { length: 64 }).notNull().default('America/Sao_Paulo'),
+  operatorNotifyBeforeMin: integer('operator_notify_before_min').notNull().default(15),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const eventTypes = pgTable('event_types', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  bookingPageId: uuid('booking_page_id').notNull().references(() => bookingPages.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 120 }).notNull(),
+  slug: varchar('slug', { length: 80 }).notNull(),
+  durationMin: integer('duration_min').notNull().default(30),
+  bufferBeforeMin: integer('buffer_before_min').notNull().default(0),
+  bufferAfterMin: integer('buffer_after_min').notNull().default(0),
+  minNoticeMin: integer('min_notice_min').notNull().default(120),
+  maxAdvanceDays: integer('max_advance_days').notNull().default(60),
+  maxDailyBookings: integer('max_daily_bookings'),
+  locationType: varchar('location_type', { length: 30 }).default('whatsapp'),
+  locationValue: text('location_value'),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const availabilityRules = pgTable('availability_rules', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  weekday: integer('weekday').notNull(),
+  startLocalTime: varchar('start_local_time', { length: 5 }).notNull(),
+  endLocalTime: varchar('end_local_time', { length: 5 }).notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const availabilityExceptions = pgTable('availability_exceptions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  dateLocal: varchar('date_local', { length: 10 }).notNull(),
+  mode: varchar('mode', { length: 20 }).notNull().default('closed'),
+  startLocalTime: varchar('start_local_time', { length: 5 }),
+  endLocalTime: varchar('end_local_time', { length: 5 }),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const manualBlocks = pgTable('manual_blocks', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  allDay: boolean('all_day').notNull().default(false),
+  reason: text('reason'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+const bookings = pgTable('bookings', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  bookingPageId: uuid('booking_page_id').notNull().references(() => bookingPages.id, { onDelete: 'cascade' }),
+  eventTypeId: uuid('event_type_id').notNull().references(() => eventTypes.id, { onDelete: 'restrict' }),
+  conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
+  inviteeName: varchar('invitee_name', { length: 255 }).notNull(),
+  inviteeEmail: varchar('invitee_email', { length: 255 }).notNull(),
+  inviteeTimezone: varchar('invitee_timezone', { length: 64 }).notNull().default('America/Sao_Paulo'),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('confirmed'),
+  publicToken: varchar('public_token', { length: 64 }).notNull().unique(),
+  operatorNotifiedAt: timestamp('operator_notified_at', { withTimezone: true }),
+  cancelReason: text('cancel_reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 module.exports = {
   conversations,
   messages,
@@ -432,6 +516,12 @@ module.exports = {
   promotionSlots,
   promotionEvents,
   promotionLeads,
+  bookingPages,
+  eventTypes,
+  availabilityRules,
+  availabilityExceptions,
+  manualBlocks,
+  bookings,
   plans,
   contracts,
   paymentRecords,
