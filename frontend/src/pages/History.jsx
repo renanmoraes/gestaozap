@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import api from '../api';
 import { RefreshCw, Loader2 } from 'lucide-react';
+import { useTenant } from '../context/TenantContext';
+import { useQueueLive, patchJob, patchRecipientRows } from '../hooks/useQueueLive';
 import {
   DEFAULT_HOUR_START,
   DEFAULT_HOUR_END,
@@ -132,6 +134,7 @@ function DocIcon(props) {
 }
 
 export default function History() {
+  const { tenant } = useTenant();
   const [jobs, setJobs] = useState([]);
   const [selectedRun, setSelectedRun] = useState(null);
   const [logsByRun, setLogsByRun] = useState({});
@@ -181,6 +184,28 @@ export default function History() {
   useEffect(() => {
     loadHistoryIndex();
   }, []);
+
+  const handleLiveJob = useCallback((update) => {
+    setJobs((prev) => patchJob(prev, update));
+  }, []);
+
+  const handleLiveRecipient = useCallback((update) => {
+    const runId = String(update.runId || update.jobId);
+    const campaignId = normalizeCampaignId(update.campaignId);
+    if (!campaignId || !runId || !update.recipient) return;
+    const key = runKey(campaignId, runId);
+    setLogsByRun((prev) => {
+      const rows = prev[key];
+      if (!rows) return prev;
+      return { ...prev, [key]: patchRecipientRows(rows, update.recipient) };
+    });
+  }, []);
+
+  useQueueLive({
+    tenantId: tenant?.id,
+    onJobUpdate: handleLiveJob,
+    onRecipientUpdate: handleLiveRecipient,
+  });
 
   /** 1) GET fila: merge job.data.contacts + Logs; 2) se job sumiu do Redis → só Logs. */
   const loadRecipients = async (campaignId, runId) => {
@@ -344,7 +369,7 @@ export default function History() {
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Histórico</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Selecione um disparo para ver contatos e feedback.
+            Selecione um disparo — envios e falhas atualizam ao vivo.
           </p>
         </div>
         <button type="button" onClick={() => loadHistoryIndex()} className="btn-secondary">
@@ -376,6 +401,9 @@ export default function History() {
                   completed: 'badge-green', active: 'badge-blue',
                   waiting: 'badge-yellow', failed: 'badge-red', delayed: 'badge-gray',
                 };
+                const sentN = j.result?.sentCount ?? 0;
+                const failN = j.result?.failedCount ?? 0;
+                const pct = j.state === 'active' && j.progress != null ? `${j.progress}%` : null;
                 return (
                   <button
                     key={item.key}
@@ -389,10 +417,15 @@ export default function History() {
                       {j.campaignName || '—'}
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">{fmtDateTime(j.createdAt)}</p>
-                    <div className="mt-1">
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <span className={stateMap[j.state] || 'badge-gray'}>
-                        {j.stateLabel || j.state}
+                        {j.paused ? 'Pausado' : (j.stateLabel || j.state)}
                       </span>
+                      {(sentN > 0 || failN > 0 || pct) && (
+                        <span className="text-xs text-slate-500">
+                          {pct ? `${pct} · ` : ''}{sentN}✓{failN > 0 ? ` · ${failN}✗` : ''}
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
@@ -412,8 +445,10 @@ export default function History() {
               <>
                 {/* 4 metric cards */}
                 {(() => {
-                  const sentCount = selectedLogs.filter((l) => l.status === 'sent').length;
-                  const failCount = selectedLogs.filter((l) => l.status === 'failed').length;
+                  const sentFromLogs = selectedLogs.filter((l) => l.status === 'sent').length;
+                  const failFromLogs = selectedLogs.filter((l) => l.status === 'failed').length;
+                  const sentCount = selectedLogs.length > 0 ? sentFromLogs : (selectedJob?.result?.sentCount ?? 0);
+                  const failCount = selectedLogs.length > 0 ? failFromLogs : (selectedJob?.result?.failedCount ?? 0);
                   const respRate = analysis?.totals?.sentContacts > 0
                     ? Math.round((analysis.totals.respondedContacts / analysis.totals.sentContacts) * 100)
                     : null;

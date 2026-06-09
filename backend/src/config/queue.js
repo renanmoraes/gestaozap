@@ -67,6 +67,13 @@ async function clearDispatchCancel(tenantId, dispatchId) {
   await getQueueForTenant(tenantId).client.del(DISPATCH_CANCEL_KEY(tenantId, dispatchId));
 }
 
+/** Cancelamento do job OU do dispatch inteiro (continuações incluídas). */
+async function isSendCancelled(tenantId, jobId, dispatchId) {
+  if (jobId && await isCancelRequested(tenantId, jobId)) return true;
+  if (dispatchId && await isDispatchCancelRequested(tenantId, dispatchId)) return true;
+  return false;
+}
+
 module.exports = {
   getQueueForTenant,
   requestCancelFlag,
@@ -75,6 +82,7 @@ module.exports = {
   requestCancelDispatch,
   isDispatchCancelRequested,
   clearDispatchCancel,
+  isSendCancelled,
   requestPauseFlag,
   isPauseRequested,
   clearPauseFlag,

@@ -4,6 +4,8 @@ import api from '../api';
 import { formatDateTimeBr } from '../utils/timezone';
 import { dialog } from '../utils/dialog';
 import { apiErrorMessage, MSG } from '../utils/messages';
+import { useTenant } from '../context/TenantContext';
+import { useQueueLive, patchJob } from '../hooks/useQueueLive';
 
 function fmtTs(ts) {
   if (ts == null) return '—';
@@ -14,7 +16,8 @@ function resultSummary(r) {
   if (!r || typeof r !== 'object') return null;
   if (r.skippedForHours) return { text: 'Fora do horário', color: 'yellow' };
   if (r.cancelled) return { text: `Cancelado · ${r.sentCount ?? 0} enviados`, color: 'yellow' };
-  const s = r.sentCount ?? 0, f = r.failedCount ?? 0;
+  const s = r.sentCount ?? 0;
+  const f = r.failedCount ?? 0;
   if (f > 0) return { text: `${s} enviados · ${f} falha(s)`, color: 'red' };
   if (s > 0) return { text: `${s} enviado(s)`, color: 'green' };
   return null;
@@ -46,6 +49,7 @@ function StatusBadge({ state, paused }) {
 }
 
 export default function Queue() {
+  const { tenant } = useTenant();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(null);
@@ -61,13 +65,22 @@ export default function Queue() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 4000);
-    return () => clearInterval(t);
   }, [load]);
+
+  const handleLiveJob = useCallback((update) => {
+    setJobs((prev) => patchJob(prev, update));
+  }, []);
+
+  useQueueLive({ tenantId: tenant?.id, onJobUpdate: handleLiveJob });
 
   const cancel = async (id) => {
     setActing(id);
-    try { await api.post(`/api/queue/jobs/${id}/cancel`); await load(); } finally { setActing(null); }
+    try {
+      await api.post(`/api/queue/jobs/${id}/cancel`);
+      await load();
+    } finally {
+      setActing(null);
+    }
   };
 
   const retry = async (id) => {
@@ -78,17 +91,29 @@ export default function Queue() {
       await load();
     } catch (err) {
       dialog.toast.error(apiErrorMessage(err, MSG.retryFailed));
-    } finally { setActing(null); }
+    } finally {
+      setActing(null);
+    }
   };
 
   const pause = async (id) => {
     setActing(id);
-    try { await api.post(`/api/queue/jobs/${id}/pause`); await load(); } finally { setActing(null); }
+    try {
+      await api.post(`/api/queue/jobs/${id}/pause`);
+      setJobs((prev) => patchJob(prev, { type: 'paused', jobId: id, paused: true, state: 'active' }));
+    } finally {
+      setActing(null);
+    }
   };
 
   const resume = async (id) => {
     setActing(id);
-    try { await api.post(`/api/queue/jobs/${id}/resume`); await load(); } finally { setActing(null); }
+    try {
+      await api.post(`/api/queue/jobs/${id}/resume`);
+      setJobs((prev) => patchJob(prev, { type: 'resumed', jobId: id, paused: false, state: 'active' }));
+    } finally {
+      setActing(null);
+    }
   };
 
   return (
@@ -96,7 +121,7 @@ export default function Queue() {
       <div className="page-header">
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Fila de envios</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{jobs.length} job(s) encontrado(s)</p>
+          <p className="text-sm text-slate-500 mt-0.5">{jobs.length} job(s) · atualização ao vivo</p>
         </div>
         <button onClick={load} className="btn-secondary">
           <RefreshCw className="w-4 h-4" />Atualizar
@@ -118,9 +143,11 @@ export default function Queue() {
             <div>
               {jobs.map((job) => {
                 const res = resultSummary(job.result);
+                const liveSent = job.result?.sentCount ?? 0;
+                const liveFailed = job.result?.failedCount ?? 0;
+                const showProgress = (job.state === 'active' || job.state === 'delayed') && job.progress != null;
                 return (
                   <div key={job.id} className="p-5 flex flex-col gap-3 border-b border-slate-100 last:border-b-0">
-                    {/* Topo: nome da campanha + status badge */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900 truncate">
@@ -136,30 +163,28 @@ export default function Queue() {
                       </div>
                     </div>
 
-                    {/* Progresso — só quando active */}
-                    {job.state === 'active' && job.progress != null && (
+                    {showProgress && (
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-slate-100 rounded-full h-2">
                             <div
-                              className="bg-brand-600 h-2 rounded-full transition-all"
-                              style={{ width: `${job.progress}%` }}
+                              className="bg-brand-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${Math.min(100, job.progress)}%` }}
                             />
                           </div>
                           <span className="text-xs font-semibold text-brand-700 w-9 text-right shrink-0">
                             {job.progress}%
                           </span>
                         </div>
-                        {job.contactsTotal > 0 && (
-                          <p className="text-xs text-slate-400">
-                            {Math.round((job.progress / 100) * job.contactsTotal)} de {job.contactsTotal} contatos enviados
-                          </p>
-                        )}
+                        <p className="text-xs text-slate-500">
+                          {liveSent} enviados
+                          {liveFailed > 0 ? ` · ${liveFailed} falha(s)` : ''}
+                          {job.contactsTotal > 0 ? ` · ${job.contactsTotal} contatos` : ''}
+                        </p>
                       </div>
                     )}
 
-                    {/* Ações */}
-                    {(job.state === 'active' || job.state === 'waiting' || job.state === 'failed') && (
+                    {(job.state === 'active' || job.state === 'waiting' || job.state === 'failed' || job.state === 'delayed') && (
                       <div className="flex gap-2 justify-end">
                         {job.state === 'active' && !job.paused && (
                           <button
@@ -181,7 +206,7 @@ export default function Queue() {
                             Retomar
                           </button>
                         )}
-                        {(job.state === 'active' || job.state === 'waiting') && (
+                        {(job.state === 'active' || job.state === 'waiting' || job.state === 'delayed') && (
                           <button
                             onClick={() => cancel(job.id)}
                             disabled={acting === job.id}

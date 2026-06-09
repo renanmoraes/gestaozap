@@ -3,13 +3,13 @@ const { eq, and, inArray } = require('drizzle-orm');
 const {
   getQueueForTenant,
   requestCancelFlag,
-  requestCancelDispatch,
   requestPauseFlag,
   clearPauseFlag,
   clearCancelFlag,
   isPauseRequested,
 } = require('../config/queue');
-const { removeQueuedJobsForDispatch } = require('../services/dispatch.service');
+const { cancelDispatchCompletely } = require('../services/dispatch.service');
+const { emitQueueUpdate } = require('../services/send-live.service');
 const { requireWAConnected } = require('../middleware/featureGate');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { campaigns } = require('../db/schema');
@@ -169,16 +169,34 @@ router.post('/jobs/:id/cancel', async (req, res) => {
     const state = await job.getState();
     if (state === 'completed' || state === 'failed') return res.status(400).json({ error: 'Job já finalizado' });
     const dispatchId = job.data?.dispatchId;
+    const io = req.app.get('io');
+    const runId = String(job.data?.sendJobIdOverride || job.id);
+
     if (dispatchId) {
-      await requestCancelDispatch(tenantId, dispatchId);
-      await removeQueuedJobsForDispatch(tenantId, dispatchId);
+      await cancelDispatchCompletely(tenantId, dispatchId);
+      emitQueueUpdate(io, tenantId, {
+        type: 'cancelling',
+        jobId: String(job.id),
+        campaignId: job.data?.campaignId || null,
+        runId,
+        state,
+        cancelled: true,
+      });
+      return res.json({ ok: true, action: state === 'active' ? 'cancelling' : 'removed', dispatchId });
     }
     if (state === 'waiting' || state === 'delayed') {
       await job.remove();
+      emitQueueUpdate(io, tenantId, {
+        type: 'done', jobId: String(job.id), campaignId: job.data?.campaignId || null,
+        runId, state: 'completed', cancelled: true,
+      });
       return res.json({ ok: true, action: 'removed' });
     }
     if (state === 'active') {
       await requestCancelFlag(tenantId, job.id);
+      emitQueueUpdate(io, tenantId, {
+        type: 'cancelling', jobId: String(job.id), campaignId: job.data?.campaignId || null, runId, state: 'active',
+      });
       return res.json({ ok: true, action: 'cancelling' });
     }
     return res.status(400).json({ error: `Estado não suportado: ${state}` });
@@ -199,6 +217,15 @@ router.post('/jobs/:id/pause', async (req, res) => {
       return res.status(400).json({ error: `Só é possível pausar um job em execução (estado atual: ${state})` });
     }
     await requestPauseFlag(tenantId, job.id);
+    const io = req.app.get('io');
+    emitQueueUpdate(io, tenantId, {
+      type: 'paused',
+      jobId: String(job.id),
+      campaignId: job.data?.campaignId || null,
+      runId: String(job.data?.sendJobIdOverride || job.id),
+      state: 'active',
+      paused: true,
+    });
     return res.json({ ok: true, action: 'pausing' });
   } catch (err) {
     console.error('queue pause:', err);
@@ -213,6 +240,15 @@ router.post('/jobs/:id/resume', async (req, res) => {
     const job = await queue.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job não encontrado' });
     await clearPauseFlag(tenantId, job.id);
+    const io = req.app.get('io');
+    emitQueueUpdate(io, tenantId, {
+      type: 'resumed',
+      jobId: String(job.id),
+      campaignId: job.data?.campaignId || null,
+      runId: String(job.data?.sendJobIdOverride || job.id),
+      state: 'active',
+      paused: false,
+    });
     return res.json({ ok: true, action: 'resuming' });
   } catch (err) {
     console.error('queue resume:', err);

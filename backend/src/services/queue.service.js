@@ -1,11 +1,11 @@
 const {
   getQueueForTenant,
-  isCancelRequested,
-  isDispatchCancelRequested,
+  isSendCancelled,
   clearCancelFlag,
   isPauseRequested,
   clearPauseFlag,
 } = require('../config/queue');
+const { emitProgress, emitJobState } = require('./send-live.service');
 const { eq, and, or, sql } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { sendLogs, tenants, messageUsage, contracts } = require('../db/schema');
@@ -44,11 +44,11 @@ function buildMessage(template, variables = {}, appendOptOut = false, optOutText
   return msg;
 }
 
-async function sleepWithCancel(ms, tenantId, jobId) {
+async function sleepWithCancel(ms, tenantId, jobId, dispatchId) {
   const chunk = 2000;
   let elapsed = 0;
   while (elapsed < ms) {
-    if (await isCancelRequested(tenantId, jobId)) return true;
+    if (await isSendCancelled(tenantId, jobId, dispatchId)) return true;
     const step = Math.min(chunk, ms - elapsed);
     await new Promise((r) => setTimeout(r, step));
     elapsed += step;
@@ -56,15 +56,21 @@ async function sleepWithCancel(ms, tenantId, jobId) {
   return false;
 }
 
-async function waitWhilePaused(tenantId, jobId, io, ctx) {
+async function waitWhilePaused(tenantId, jobId, dispatchId, io, ctx) {
   if (!(await isPauseRequested(tenantId, jobId))) return false;
-  io.to(tenantId).emit('send:paused', { ...ctx, jobId });
+  emitJobState(io, tenantId, {
+    type: 'paused', jobId, campaignId: ctx.campaignId, sentCount: ctx.sentCount, total: ctx.total,
+    state: 'active', paused: true, runId: ctx.runId,
+  });
   while (await isPauseRequested(tenantId, jobId)) {
-    if (await isCancelRequested(tenantId, jobId)) return true;
+    if (await isSendCancelled(tenantId, jobId, dispatchId)) return true;
     await new Promise((r) => setTimeout(r, 2000));
   }
-  if (await isCancelRequested(tenantId, jobId)) return true;
-  io.to(tenantId).emit('send:resumed', { ...ctx, jobId });
+  if (await isSendCancelled(tenantId, jobId, dispatchId)) return true;
+  emitJobState(io, tenantId, {
+    type: 'resumed', jobId, campaignId: ctx.campaignId, sentCount: ctx.sentCount, total: ctx.total,
+    state: 'active', paused: false, runId: ctx.runId,
+  });
   return false;
 }
 
@@ -110,6 +116,13 @@ async function persistFailure(db, opts) {
 async function rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCount, total, fromIndex }) {
   const tenantId = job.data.tenantId || DEFAULT_TENANT_ID;
   const { campaignId, contacts, dispatchId } = job.data;
+  if (await isSendCancelled(tenantId, job.id, dispatchId)) {
+    emitJobState(io, tenantId, {
+      type: 'done', jobId: job.id, campaignId, sentCount, failedCount, total,
+      cancelled: true, state: 'completed', runId: String(job.data.sendJobIdOverride || job.id),
+    });
+    return { sentCount, failedCount, total, cancelled: true };
+  }
   const delay = msUntilNextHourBr(hourStart);
   const resumesAt = new Date(Date.now() + delay).toISOString();
   await getQueueForTenant(tenantId).add(
@@ -121,8 +134,15 @@ async function rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCo
     },
     { delay, removeOnComplete: true },
   );
-  io.to(tenantId).emit('send:paused', { campaignId, jobId: job.id, reason: 'outside_hours', resumesAt, sentCount, total });
-  io.to(tenantId).emit('send:done', { campaignId, jobId: job.id, sentCount, failedCount, total, rescheduled: true, resumesAt });
+  emitJobState(io, tenantId, {
+    type: 'paused', jobId: job.id, campaignId, sentCount, failedCount, total,
+    reason: 'outside_hours', resumesAt, state: 'delayed', paused: true,
+    runId: String(job.data.sendJobIdOverride || job.id),
+  });
+  emitJobState(io, tenantId, {
+    type: 'done', jobId: job.id, campaignId, sentCount, failedCount, total,
+    rescheduled: true, resumesAt, state: 'delayed', runId: String(job.data.sendJobIdOverride || job.id),
+  });
   return { sentCount, failedCount, total, rescheduled: true, resumesAt };
 }
 
@@ -164,6 +184,21 @@ function buildProcessor(io) {
       const total = contacts.length;
       const sendJobId = String(job.data.sendJobIdOverride || jobId);
 
+      const finishCancelled = () => {
+        emitJobState(io, tenantId, {
+          type: 'done',
+          jobId,
+          campaignId,
+          sentCount,
+          failedCount,
+          total,
+          cancelled: true,
+          state: 'completed',
+          runId: sendJobId,
+        });
+        return { sentCount, failedCount, total, cancelled: true };
+      };
+
       // KILL SWITCH: aborta job inteiro se admin acionou
       const killReason = await guard.getKillSwitch(tenantId);
       if (killReason) {
@@ -175,6 +210,7 @@ function buildProcessor(io) {
       for (let pass = 0; pass < 2; pass++) {
         let batch = contacts;
         if (pass === 1) {
+          if (await isSendCancelled(tenantId, jobId, dispatchId)) return finishCancelled();
           const retryRows = await db.select().from(sendLogs).where(and(
             eq(sendLogs.tenantId, tenantId),
             eq(sendLogs.campaignId, campaignId),
@@ -195,12 +231,8 @@ function buildProcessor(io) {
           return rescheduleOutsideWindow(job, io, { hourStart, sentCount, failedCount, total, fromIndex: i });
         }
 
-        await waitWhilePaused(tenantId, jobId, io, { campaignId, sentCount, total });
-        if (await isDispatchCancelRequested(tenantId, dispatchId) || await isCancelRequested(tenantId, jobId)) {
-          io.to(tenantId).emit('send:cancelled', { campaignId, jobId, sentCount, total });
-          io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
-          return { sentCount, failedCount, total, cancelled: true };
-        }
+        await waitWhilePaused(tenantId, jobId, dispatchId, io, { campaignId, sentCount, total, runId: sendJobId });
+        if (await isSendCancelled(tenantId, jobId, dispatchId)) return finishCancelled();
 
         // QUALITY GATE: pausa se taxa de erro > 2% nos últimos N envios
         if (guard.isQualityGateBreached(tenantId)) {
@@ -224,7 +256,10 @@ function buildProcessor(io) {
           guard.recordAckResult(tenantId, true);
           metrics.recordSendOutcome(tenantId, 'dlq');
           metrics.recordDlq(tenantId, 'invalid_phone');
-          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone: contact.phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'invalid_phone' });
+          emitProgress(io, tenantId, {
+            campaignId, jobId, phone: contact.phone, status: 'dlq', sentCount, total: batchTotal,
+            index: pass === 0 ? i + 1 : total + i + 1, reason: 'invalid_phone',
+          }, { failedCount, runId: sendJobId });
           job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
           continue;
         }
@@ -265,7 +300,10 @@ function buildProcessor(io) {
           failedCount++;
           metrics.recordDedupeHit(tenantId, 'recipient_24h');
           metrics.recordSendOutcome(tenantId, 'skipped');
-          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'skipped', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'rate_limit_24h' });
+          emitProgress(io, tenantId, {
+            campaignId, jobId, phone, status: 'skipped', sentCount, total: batchTotal,
+            index: pass === 0 ? i + 1 : total + i + 1, reason: 'rate_limit_24h',
+          }, { failedCount, runId: sendJobId });
           job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
           continue;
         }
@@ -279,13 +317,18 @@ function buildProcessor(io) {
               .where(eq(sendLogs.id, log.id));
             await guard.releaseRecipientLock(tenantId, phone);
             failedCount++;
-            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'not_on_whatsapp' });
+            emitProgress(io, tenantId, {
+              campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal,
+              index: pass === 0 ? i + 1 : total + i + 1, reason: 'not_on_whatsapp',
+            }, { failedCount, runId: sendJobId });
             job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
             continue;
           }
         }
 
         const attempts = Number(log.error?.startsWith?.('attempt:') ? log.error.split(':')[1] : 0) || 0;
+
+        if (await isSendCancelled(tenantId, jobId, dispatchId)) return finishCancelled();
 
         try {
           const message = buildMessage(text, { ...variables, name: contact.name }, appendOptOut, optOutText);
@@ -310,22 +353,18 @@ function buildProcessor(io) {
           sentCount++;
           trackMessageUsage(db, tenantId, log.id).catch(() => {});
 
-          io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'sent', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1 });
-          job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
+          const progIdx = pass === 0 ? i + 1 : total + i + 1;
+          const progPct = Math.round((progIdx / batchTotal) * 100);
+          job.progress(progPct);
+          emitProgress(io, tenantId, {
+            campaignId, jobId, phone, status: 'sent', sentCount, total: batchTotal, index: progIdx,
+          }, { failedCount, runId: sendJobId });
 
           if (shouldPauseBatch(sentCount)) {
             io.to(tenantId).emit('send:batch_pause', { campaignId, jobId, sentCount });
-            if (await sleepWithCancel(getBatchPauseMs(), tenantId, jobId)) {
-              io.to(tenantId).emit('send:cancelled', { campaignId, jobId, sentCount, total });
-              io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
-              return { sentCount, failedCount, total, cancelled: true };
-            }
-          } else {
-            if (await sleepWithCancel(buildAntibanDelay(), tenantId, jobId)) {
-              io.to(tenantId).emit('send:cancelled', { campaignId, jobId, sentCount, total });
-              io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
-              return { sentCount, failedCount, total, cancelled: true };
-            }
+            if (await sleepWithCancel(getBatchPauseMs(), tenantId, jobId, dispatchId)) return finishCancelled();
+          } else if (await sleepWithCancel(buildAntibanDelay(), tenantId, jobId, dispatchId)) {
+            return finishCancelled();
           }
         } catch (err) {
           const cls = guard.classifyError(err);
@@ -347,7 +386,10 @@ function buildProcessor(io) {
             // Libera o lock do destinatário (permite que outro flow tente depois)
             await guard.releaseRecipientLock(tenantId, phone);
             failedCount++;
-            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: cls.reason });
+            emitProgress(io, tenantId, {
+              campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal,
+              index: pass === 0 ? i + 1 : total + i + 1, reason: cls.reason, error: cls.reason,
+            }, { failedCount, runId: sendJobId });
 
             if (cls.kind === 'policy') {
               io.to(tenantId).emit('send:alert', { campaignId, jobId, message: `Aviso de política: ${cls.reason}` });
@@ -363,7 +405,10 @@ function buildProcessor(io) {
               .where(eq(sendLogs.id, log.id));
             await guard.releaseRecipientLock(tenantId, phone);
             failedCount++;
-            io.to(tenantId).emit('send:progress', { campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1, reason: 'max_retries' });
+            emitProgress(io, tenantId, {
+              campaignId, jobId, phone, status: 'dlq', sentCount, total: batchTotal,
+              index: pass === 0 ? i + 1 : total + i + 1, reason: 'max_retries', error: 'max_retries',
+            }, { failedCount, runId: sendJobId });
             job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
             continue;
           }
@@ -378,34 +423,41 @@ function buildProcessor(io) {
           await guard.releaseRecipientLock(tenantId, phone);
 
           const backoff = guard.computeBackoffMs(newAttempts - 1);
-          io.to(tenantId).emit('send:progress', {
-            campaignId, jobId, phone, status: 'retry', sentCount, total: batchTotal, index: pass === 0 ? i + 1 : total + i + 1,
-            attempt: newAttempts, backoffMs: backoff, reason: cls.reason,
-          });
+          emitProgress(io, tenantId, {
+            campaignId, jobId, phone, status: 'failed', sentCount, total: batchTotal,
+            index: pass === 0 ? i + 1 : total + i + 1,
+            attempt: newAttempts, backoffMs: backoff, reason: cls.reason, error: cls.reason,
+          }, { failedCount, runId: sendJobId });
           failedCount++;
 
           const failures = whatsapp.incrementFailures(tenantId);
           job.progress(Math.round(((pass === 0 ? i + 1 : total + i + 1) / batchTotal) * 100));
 
-          if (await sleepWithCancel(backoff, tenantId, jobId)) {
-            io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
-            return { sentCount, failedCount, total, cancelled: true };
-          }
+          if (await sleepWithCancel(backoff, tenantId, jobId, dispatchId)) return finishCancelled();
 
           // Falhas consecutivas → pausa longa (defesa adicional)
           const maxFailures = getMaxConsecutiveFailures();
           if (failures >= maxFailures) {
             io.to(tenantId).emit('send:alert', { campaignId, jobId, message: `${maxFailures} falhas consecutivas — envio pausado` });
-            if (await sleepWithCancel(getFailurePauseMs(), tenantId, jobId)) {
-              io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
-              return { sentCount, failedCount, total, cancelled: true };
-            }
+            if (await sleepWithCancel(getFailurePauseMs(), tenantId, jobId, dispatchId)) return finishCancelled();
           }
         }
         }
       }
 
-      io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: false });
+      job.progress(100);
+      emitJobState(io, tenantId, {
+        type: 'done',
+        jobId,
+        campaignId,
+        sentCount,
+        failedCount,
+        total,
+        cancelled: false,
+        state: 'completed',
+        progress: 100,
+        runId: sendJobId,
+      });
       return { sentCount, failedCount, total, cancelled: false };
     } finally {
       await clearCancelFlag(tenantId, jobId);
