@@ -48,6 +48,7 @@ services:
       - ./frontend/index.html:/app/index.html
       - ./frontend/vite.config.js:/app/vite.config.js
     environment:
+      - TZ=America/Sao_Paulo
       - VITE_BACKEND_PROXY_TARGET=http://backend:3001
       - VITE_API_URL=
     restart: unless-stopped
@@ -58,9 +59,11 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     environment:
+      - TZ=America/Sao_Paulo
       - POSTGRES_DB=wa_invites
       - POSTGRES_USER=wa_invites
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-wa_invites}
+    command: ["postgres", "-c", "timezone=America/Sao_Paulo", "-c", "log_timezone=America/Sao_Paulo"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -73,6 +76,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    environment:
+      - TZ=America/Sao_Paulo
     volumes:
       - redis_data:/data
     healthcheck:

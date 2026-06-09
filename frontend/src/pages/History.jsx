@@ -4,14 +4,16 @@ import { RefreshCw, Loader2 } from 'lucide-react';
 import {
   DEFAULT_HOUR_START,
   DEFAULT_HOUR_END,
+  getCurrentHourBr,
   isOutsideRecommendedHours,
   confirmSendOutsideHours,
 } from '../utils/hours';
+import { formatDateTimeBr } from '../utils/timezone';
 
 function buildHoursPayload() {
   const hourStart = DEFAULT_HOUR_START;
   const hourEnd = DEFAULT_HOUR_END;
-  const h = new Date().getHours();
+  const h = getCurrentHourBr();
   let ignoreHours = false;
   if (isOutsideRecommendedHours(h, hourStart, hourEnd)) {
     if (!confirmSendOutsideHours(hourStart, hourEnd)) return null;
@@ -36,7 +38,7 @@ function runKey(campaignId, runId) {
 
 function fmtDateTime(date) {
   if (date == null) return '—';
-  return new Date(date).toLocaleString('pt-BR', {
+  return formatDateTimeBr(date, {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });

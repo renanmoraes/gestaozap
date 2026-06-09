@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { getPool } = require('../db');
 const { getConfigInt } = require('../config/platform');
+const { formatStampBr, msUntilNextHourBr } = require('../utils/timezone.util');
 
 const BACKUP_DIR = path.join(__dirname, '../../backups');
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');
@@ -24,8 +25,7 @@ function ensureDir(dir) {
 }
 
 function stamp(d = new Date()) {
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return formatStampBr(d);
 }
 
 function readUploads(imagePathSet = null) {
@@ -267,11 +267,7 @@ function deleteBackup(name) {
 }
 
 function msUntilNextHour(hour) {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(hour, 0, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
-  return next - now;
+  return msUntilNextHourBr(hour);
 }
 
 function scheduleAutoBackup() {

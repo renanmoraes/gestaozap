@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { eq, and, desc, sql } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { contracts, plans, paymentRecords, sendLogs } = require('../db/schema');
+const { getMonthKeyBr } = require('../utils/timezone.util');
 
 function getTenantId(req) {
   return (req.tenant && req.tenant.id) || DEFAULT_TENANT_ID;
@@ -38,7 +39,7 @@ router.get('/summary', async (req, res) => {
     `).then((r) => r.rows);
 
     // Mensagens enviadas no mês corrente (conta de send_logs com status = 'sent')
-    const currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+    const currentMonth = getMonthKeyBr();
     const [usageRow] = await db.execute(sql`
       SELECT COUNT(*)::int AS messages_sent
       FROM send_logs
@@ -154,7 +155,7 @@ router.get('/usage/daily', async (req, res) => {
   try {
     const db = getDb();
     const tenantId = getTenantId(req);
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const month = req.query.month || getMonthKeyBr();
 
     const rows = await db.execute(sql`
       SELECT

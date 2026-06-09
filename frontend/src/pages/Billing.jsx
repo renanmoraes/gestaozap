@@ -6,6 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import api from '../api';
+import { formatDateBr } from '../utils/timezone';
 
 function PlanBadge({ slug }) {
   const colors = {
@@ -137,7 +138,7 @@ export default function Billing() {
                   </div>
                   <div className="text-xs text-slate-500">
                     {summary.contract.expires_at
-                      ? new Date(summary.contract.expires_at).toLocaleDateString('pt-BR')
+                      ? formatDateBr(summary.contract.expires_at)
                       : '—'}
                   </div>
                   {summary.daysUntilExpiry != null && summary.daysUntilExpiry <= 7 && (
@@ -220,7 +221,7 @@ export default function Billing() {
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">
                         {r.reference_month && `Ref. ${r.reference_month} · `}
-                        {new Date(r.created_at).toLocaleDateString('pt-BR')}
+                        {formatDateBr(r.created_at)}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">

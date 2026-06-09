@@ -4,6 +4,7 @@ import {
   AlertCircle, Lightbulb, RefreshCw, Copy, CheckCircle2,
 } from 'lucide-react';
 import api from '../api';
+import { formatTemplateDateBr, formatTemplateTimeBr } from '../utils/timezone';
 
 const VARS_BUILTIN = [
   { tag: '{nome}',     desc: 'Nome do contato com quem você está conversando',  auto: true },
@@ -27,8 +28,8 @@ function highlightVars(text) {
 function PreviewBubble({ body }) {
   // Substitui variáveis automáticas para mostrar como o cliente verá
   const now = new Date();
-  const data = now.toLocaleDateString('pt-BR');
-  const hora = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const data = formatTemplateDateBr(now);
+  const hora = formatTemplateTimeBr(now);
   const sample = String(body || '')
     .replace(/\{nome\}/gi, 'Maria')
     .replace(/\{data\}/gi, data)

@@ -19,6 +19,43 @@ export function initLandingEffects(root) {
     cleanups.push(() => window.removeEventListener('scroll', onScrollNav));
   }
 
+  /* ---- Mobile menu (hamburger drawer) ---- */
+  const navToggle = root.querySelector('#navToggle');
+  const navDrawer = root.querySelector('#navDrawer');
+  const navScrim = root.querySelector('#navScrim');
+
+  const setMenu = (open) => {
+    nav?.classList.toggle('menu-open', open);
+    navDrawer?.classList.toggle('open', open);
+    navScrim?.classList.toggle('show', open);
+    if (navScrim) navScrim.hidden = !open;
+    navToggle?.setAttribute('aria-expanded', String(open));
+    navToggle?.setAttribute('aria-label', open ? 'Fechar menu' : 'Abrir menu');
+  };
+
+  if (navToggle && navDrawer) {
+    const onToggle = () => setMenu(!navDrawer.classList.contains('open'));
+    const onScrimClick = () => setMenu(false);
+    const onKeyDown = (e) => { if (e.key === 'Escape') setMenu(false); };
+    const onResize = () => { if (window.innerWidth > 860) setMenu(false); };
+
+    navToggle.addEventListener('click', onToggle);
+    navScrim?.addEventListener('click', onScrimClick);
+    navDrawer.querySelectorAll('a').forEach((a) => {
+      a.addEventListener('click', () => setMenu(false));
+    });
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+
+    cleanups.push(() => {
+      navToggle.removeEventListener('click', onToggle);
+      navScrim?.removeEventListener('click', onScrimClick);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+      setMenu(false);
+    });
+  }
+
   /* ---- Lucide icons ---- */
   createIcons({ icons, attrs: { 'stroke-width': 1.5 }, nameAttr: 'data-lucide' });
 
@@ -75,14 +112,18 @@ export function initLandingEffects(root) {
     cmy = lerp(cmy, my, 0.07);
 
     if (stageInner) {
-      const k = 1;
-      const baseRY = -13;
-      const ry = reduce ? 0 : baseRY + cmx * 7 + scrollT * 12;
-      const rx = reduce ? 0 : 6 + (-cmy * 5) - scrollT * 8;
-      const ty = reduce ? 0 : -scrollT * 40;
-      const sc = reduce ? 1 : 0.95;
-      stageInner.style.transform =
-        `translateY(${ty}px) scale(${sc}) rotateX(${rx}deg) rotateY(${ry}deg)`;
+      const mobile = window.innerWidth <= 700;
+      if (mobile) {
+        if (stageInner.style.transform) stageInner.style.transform = '';
+      } else {
+        const baseRY = -13;
+        const ry = reduce ? 0 : baseRY + cmx * 7 + scrollT * 12;
+        const rx = reduce ? 0 : 6 + (-cmy * 5) - scrollT * 8;
+        const ty = reduce ? 0 : -scrollT * 40;
+        const sc = reduce ? 1 : 0.95;
+        stageInner.style.transform =
+          `translateY(${ty}px) scale(${sc}) rotateX(${rx}deg) rotateY(${ry}deg)`;
+      }
     }
 
     chips.forEach((c, i) => {

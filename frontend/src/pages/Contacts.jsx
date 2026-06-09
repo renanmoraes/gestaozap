@@ -1,15 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../api';
 import { useSocket } from '../hooks/useSocket';
 import { formatPhone, maskPhoneInput } from '../utils/phone';
 import ImportContactsModal from '../components/ImportContactsModal';
 import { Smartphone } from 'lucide-react';
 
+const PAGE_SIZE = 50;
+
 export default function Contacts() {
   const [contacts, setContacts] = useState([]);
+  const [allTags, setAllTags] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [optedOutCount, setOptedOutCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [tag, setTag] = useState('');
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [form, setForm] = useState({ name: '', phone: '', tags: '' });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', phone: '', tags: '' });
@@ -18,18 +26,39 @@ export default function Contacts() {
   const [showWaImport, setShowWaImport] = useState(false);
   const [showOptedOut, setShowOptedOut] = useState(false);
   const [optOutToast, setOptOutToast] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const allTags = [...new Set(contacts.flatMap((c) => c.tags || []))].sort();
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  const load = async () => {
-    const params = {};
-    if (tag) params.tag = tag;
-    if (search.trim()) params.q = search.trim();
-    const res = await api.get('/api/contacts', { params });
-    setContacts(res.data);
-  };
+  useEffect(() => {
+    setPage(1);
+  }, [tag, searchDebounced, showOptedOut]);
 
-  useEffect(() => { load(); }, [tag, search]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = {
+        page,
+        limit: PAGE_SIZE,
+        optedOut: showOptedOut ? 'all' : 'hide',
+      };
+      if (tag) params.tag = tag;
+      if (searchDebounced) params.q = searchDebounced;
+      const res = await api.get('/api/contacts', { params });
+      setContacts(res.data.items || []);
+      setTotal(res.data.total ?? 0);
+      setTotalPages(res.data.totalPages ?? 1);
+      setOptedOutCount(res.data.optedOutCount ?? 0);
+      setAllTags(res.data.tags || []);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, tag, searchDebounced, showOptedOut]);
+
+  useEffect(() => { load(); }, [load]);
 
   useSocket({
     'contact:opted-out': ({ name, phone }) => {
@@ -43,17 +72,20 @@ export default function Contacts() {
     e.preventDefault();
     await api.post('/api/contacts', { ...form, tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean) });
     setForm({ name: '', phone: '', tags: '' });
+    setPage(1);
     load();
   };
 
   const remove = async (id) => {
     if (!confirm('Remover contato?')) return;
-    await api.delete(`/api/contacts/${id}`); load();
+    await api.delete(`/api/contacts/${id}`);
+    load();
   };
 
   const saveEdit = async (id) => {
     await api.put(`/api/contacts/${id}`, { ...editForm, tags: editForm.tags.split(',').map((t) => t.trim()).filter(Boolean) });
-    setEditingId(null); load();
+    setEditingId(null);
+    load();
   };
 
   const startEdit = (c) => {
@@ -75,18 +107,23 @@ export default function Contacts() {
     }).filter((c) => c.name && c.phone);
     if (!parsed.length) return;
     await api.post('/api/contacts/import', { contacts: parsed });
-    setImportText(''); setShowImport(false); load();
+    setImportText('');
+    setShowImport(false);
+    setPage(1);
+    load();
   };
 
-  const visible = showOptedOut ? contacts : contacts.filter((c) => !c.optedOut);
-  const optedOutCount = contacts.filter((c) => c.optedOut).length;
+  const pageStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(page * PAGE_SIZE, total);
 
   return (
     <>
       <div className="page-header">
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Contatos</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{contacts.length} no total · {optedOutCount} opt-out</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {total.toLocaleString('pt-BR')} no total · {optedOutCount.toLocaleString('pt-BR')} opt-out
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowOptedOut((v) => !v)}
@@ -96,10 +133,9 @@ export default function Contacts() {
           </button>
           <button
             onClick={() => {
-              // Dispara download direto pelo navegador
               const a = document.createElement('a');
               a.href = '/api/contacts/export';
-              a.download = ''; // o backend já manda Content-Disposition com nome do arquivo
+              a.download = '';
               a.click();
             }}
             className="btn-secondary text-xs flex items-center gap-1.5"
@@ -118,7 +154,6 @@ export default function Contacts() {
       </div>
 
       <div className="page-content">
-        {/* Import panel */}
         {showImport && (
           <div className="card p-5 space-y-3">
             <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
@@ -136,7 +171,6 @@ export default function Contacts() {
         )}
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Add form */}
           <div className="card p-5 space-y-4 h-fit">
             <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <Plus className="w-4 h-4 text-brand-600" />Novo contato
@@ -164,9 +198,7 @@ export default function Contacts() {
             </form>
           </div>
 
-          {/* List */}
           <div className="xl:col-span-2 space-y-3">
-            {/* Filters */}
             <div className="flex gap-2 flex-wrap">
               <div className="relative flex-1 min-w-48">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -191,59 +223,96 @@ export default function Contacts() {
             </div>
 
             <div className="card overflow-hidden">
-              {visible.length === 0 ? (
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <span className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : contacts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                   <Users className="w-8 h-8 mb-2" />
                   <p className="text-sm">Nenhum contato encontrado</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
-                  {visible.map((c) => (
-                    <div key={c._id} className={`px-5 py-3 ${c.optedOut ? 'bg-slate-50' : ''}`}>
-                      {editingId === c._id ? (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-2 gap-2">
-                            <input className="input text-xs" value={editForm.name}
-                              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
-                            <input className="input text-xs font-mono" value={formatPhone(editForm.phone)}
-                              onChange={(e) => setEditForm({ ...editForm, phone: maskPhoneInput(e.target.value) })} />
-                          </div>
-                          <input className="input text-xs" placeholder="tags separadas por vírgula"
-                            value={editForm.tags} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} />
-                          <div className="flex gap-2">
-                            <button onClick={() => saveEdit(c._id)} className="btn-primary text-xs py-1.5">Salvar</button>
-                            <button onClick={() => setEditingId(null)} className="btn-secondary text-xs py-1.5">Cancelar</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-medium text-slate-900">{c.name}</span>
-                              {c.optedOut && <span className="badge-red">opt-out</span>}
-                              {(c.tags || []).map((t) => (
-                                <span key={t} className="badge-gray">{t}</span>
-                              ))}
+                <>
+                  <div className="divide-y divide-slate-100">
+                    {contacts.map((c) => (
+                      <div key={c._id} className={`px-5 py-3 ${c.optedOut ? 'bg-slate-50' : ''}`}>
+                        {editingId === c._id ? (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <input className="input text-xs" value={editForm.name}
+                                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                              <input className="input text-xs font-mono" value={formatPhone(editForm.phone)}
+                                onChange={(e) => setEditForm({ ...editForm, phone: maskPhoneInput(e.target.value) })} />
                             </div>
-                            <div className="text-xs text-slate-400 mt-0.5 font-mono">{formatPhone(c.phone)}</div>
+                            <input className="input text-xs" placeholder="tags separadas por vírgula"
+                              value={editForm.tags} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} />
+                            <div className="flex gap-2">
+                              <button onClick={() => saveEdit(c._id)} className="btn-primary text-xs py-1.5">Salvar</button>
+                              <button onClick={() => setEditingId(null)} className="btn-secondary text-xs py-1.5">Cancelar</button>
+                            </div>
                           </div>
-                          <div className="flex gap-1 shrink-0">
-                            <button onClick={() => toggleOptOut(c)} title={c.optedOut ? 'Reativar' : 'Opt-out'}
-                              className={`p-2 rounded-lg transition-colors ${c.optedOut ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'}`}>
-                              {c.optedOut ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4" />}
-                            </button>
-                            <button onClick={() => startEdit(c)} className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => remove(c._id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium text-slate-900">{c.name}</span>
+                                {c.optedOut && <span className="badge-red">opt-out</span>}
+                                {(c.tags || []).map((t) => (
+                                  <span key={t} className="badge-gray">{t}</span>
+                                ))}
+                              </div>
+                              <div className="text-xs text-slate-400 mt-0.5 font-mono">{formatPhone(c.phone)}</div>
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              <button onClick={() => toggleOptOut(c)} title={c.optedOut ? 'Reativar' : 'Opt-out'}
+                                className={`p-2 rounded-lg transition-colors ${c.optedOut ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'}`}>
+                                {c.optedOut ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4" />}
+                              </button>
+                              <button onClick={() => startEdit(c)} className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => remove(c._id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {totalPages > 1 && (
+                    <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+                      <span className="text-xs text-slate-500">
+                        {pageStart}–{pageEnd} de {total.toLocaleString('pt-BR')}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={page <= 1}
+                          className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-40"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          Anterior
+                        </button>
+                        <span className="text-xs text-slate-500 tabular-nums">
+                          Página {page} de {totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={page >= totalPages}
+                          className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-40"
+                        >
+                          Próxima
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -261,7 +330,7 @@ export default function Contacts() {
       {showWaImport && (
         <ImportContactsModal
           onClose={() => setShowWaImport(false)}
-          onComplete={() => load()}
+          onComplete={() => { setPage(1); load(); }}
         />
       )}
     </>

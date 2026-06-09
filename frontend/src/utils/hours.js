@@ -1,7 +1,14 @@
+import { getHourBr } from './timezone';
+
 export const DEFAULT_HOUR_START = 8;
 export const DEFAULT_HOUR_END = 20;
 
-/** Janela [hourStart, hourEnd) — ex.: 8–20 = das 8h às 19h59 */
+/** Hora atual em Brasília (para janela de envio). */
+export function getCurrentHourBr() {
+  return getHourBr();
+}
+
+/** Janela [hourStart, hourEnd) — ex.: 8–20 = das 8h às 19h59 (horário de Brasília) */
 export function isOutsideRecommendedHours(hour, hourStart = DEFAULT_HOUR_START, hourEnd = DEFAULT_HOUR_END) {
   return hour < hourStart || hour >= hourEnd;
 }

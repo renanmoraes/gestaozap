@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, RefreshCw, XCircle, CheckCircle2, AlertCircle, Loader2, Inbox, Pause, Play } from 'lucide-react';
 import api from '../api';
+import { formatDateTimeBr } from '../utils/timezone';
 
 function fmtTs(ts) {
   if (ts == null) return '—';
-  return new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatDateTimeBr(ts, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function resultSummary(r) {

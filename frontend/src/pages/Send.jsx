@@ -3,7 +3,7 @@ import { Send, Users, Tag, Eye, AlertTriangle, CheckCircle2, Loader2, X, Info, P
 import { Link } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket';
 import api from '../api';
-import { DEFAULT_HOUR_START, DEFAULT_HOUR_END, isOutsideRecommendedHours, confirmSendOutsideHours } from '../utils/hours';
+import { DEFAULT_HOUR_START, DEFAULT_HOUR_END, getCurrentHourBr, isOutsideRecommendedHours, confirmSendOutsideHours } from '../utils/hours';
 import { renderWhatsAppLikeText } from '../utils/whatsappFormat';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -37,16 +37,21 @@ export default function SendPage() {
 
   useEffect(() => {
     api.get('/api/campaigns').then((r) => setCampaigns(r.data));
-    api.get('/api/contacts').then((r) => {
-      setContacts(r.data);
-      const tags = [...new Set(r.data.flatMap((c) => c.tags || []))].sort();
-      setAllTags(tags);
+    api.get('/api/contacts', { params: { limit: 10000, page: 1, optedOut: 'hide' } }).then((r) => {
+      setContacts(r.data.items || []);
+      setAllTags(r.data.tags || []);
     });
   }, []);
 
   useEffect(() => {
-    api.get('/api/contacts', { params: selected.tagFilter ? { tag: selected.tagFilter } : {} })
-      .then((r) => setContacts(r.data));
+    api.get('/api/contacts', {
+      params: {
+        limit: 10000,
+        page: 1,
+        optedOut: 'hide',
+        ...(selected.tagFilter ? { tag: selected.tagFilter } : {}),
+      },
+    }).then((r) => setContacts(r.data.items || []));
   }, [selected.tagFilter]);
 
   useSocket({
@@ -96,7 +101,7 @@ export default function SendPage() {
 
   const dispatch = async () => {
     if (!selected.campaignId || !selected.contactIds.size) return;
-    const h = new Date().getHours();
+    const h = getCurrentHourBr();
     let ignoreHours = false;
     if (isOutsideRecommendedHours(h, DEFAULT_HOUR_START, DEFAULT_HOUR_END)) {
       if (!confirmSendOutsideHours(DEFAULT_HOUR_START, DEFAULT_HOUR_END)) return;

@@ -4,6 +4,7 @@ import {
   Users, ChevronDown, ChevronUp, AlertCircle,
 } from 'lucide-react';
 import api from '../../api';
+import { formatDateBr } from '../../utils/timezone';
 
 const BASE_URL = window.location.origin.replace('?admin=1', '');
 
@@ -198,7 +199,7 @@ function AffiliateRow({ aff, onRefresh }) {
                         </span>
                       </td>
                       <td className="py-1.5 text-slate-400">
-                        {new Date(r.created_at).toLocaleDateString('pt-BR')}
+                        {formatDateBr(r.created_at)}
                       </td>
                     </tr>
                   ))}

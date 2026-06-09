@@ -4,6 +4,7 @@ import {
   Download, Mic, Film, File,
 } from 'lucide-react';
 import AudioPlayer from './AudioPlayer';
+import { formatTimeBr } from '../../utils/timezone';
 
 function statusIcon(status) {
   if (status === 'queued') return <Clock className="w-3 h-3 text-slate-400" />;
@@ -16,7 +17,7 @@ function statusIcon(status) {
 
 function formatTime(ts) {
   if (!ts) return '';
-  return new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return formatTimeBr(ts);
 }
 
 export default function MessageBubble({ message }) {

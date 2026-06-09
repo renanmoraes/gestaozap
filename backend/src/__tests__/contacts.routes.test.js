@@ -34,19 +34,21 @@ describe('Contacts CRUD', () => {
     expect(res.body.name).toBe('Ana');
   });
 
-  it('GET /api/contacts returns all contacts', async () => {
+  it('GET /api/contacts returns paginated contacts', async () => {
     await request(app).post('/api/contacts').send({ name: 'Ana', phone: '5511999990000' });
     const res = await request(app).get('/api/contacts');
     expect(res.status).toBe(200);
-    expect(res.body.length).toBe(1);
+    expect(res.body.items.length).toBe(1);
+    expect(res.body.total).toBe(1);
+    expect(res.body.page).toBe(1);
   });
 
   it('GET /api/contacts?tag=vip filters by tag', async () => {
     await request(app).post('/api/contacts').send({ name: 'VIP', phone: '5511111111111', tags: ['vip'] });
     await request(app).post('/api/contacts').send({ name: 'Regular', phone: '5511222222222', tags: [] });
     const res = await request(app).get('/api/contacts?tag=vip');
-    expect(res.body.length).toBe(1);
-    expect(res.body[0].name).toBe('VIP');
+    expect(res.body.items.length).toBe(1);
+    expect(res.body.items[0].name).toBe('VIP');
   });
 
   it('GET /api/contacts?q=... pesquisa por nome (e telefone com 2+ dígitos)', async () => {
@@ -54,11 +56,11 @@ describe('Contacts CRUD', () => {
     await request(app).post('/api/contacts').send({ name: 'João', phone: '5511888880002' });
     const byName = await request(app).get('/api/contacts').query({ q: 'clara' });
     expect(byName.status).toBe(200);
-    expect(byName.body.length).toBe(1);
-    expect(byName.body[0].name).toBe('Maria Clara');
+    expect(byName.body.items.length).toBe(1);
+    expect(byName.body.items[0].name).toBe('Maria Clara');
     const byPhone = await request(app).get('/api/contacts').query({ q: '99990' });
-    expect(byPhone.body.length).toBe(1);
-    expect(byPhone.body[0].name).toBe('Maria Clara');
+    expect(byPhone.body.items.length).toBe(1);
+    expect(byPhone.body.items[0].name).toBe('Maria Clara');
   });
 
   it('DELETE /api/contacts/:id deactivates contact', async () => {

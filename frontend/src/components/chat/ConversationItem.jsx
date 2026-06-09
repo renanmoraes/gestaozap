@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatPhone } from '../../utils/phone';
+import { formatRelativeChatTime } from '../../utils/timezone';
 import { Check, CheckCheck, Users } from 'lucide-react';
 
 function initialsOf(name = '') {
@@ -27,17 +28,7 @@ function colorOf(name = '') {
 }
 
 function relativeTime(ts) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) {
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  }
-  const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
-  if (diffDays === 1) return 'Ontem';
-  if (diffDays < 7) return d.toLocaleDateString('pt-BR', { weekday: 'short' });
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  return formatRelativeChatTime(ts);
 }
 
 export default function ConversationItem({ conversation, active, onClick }) {

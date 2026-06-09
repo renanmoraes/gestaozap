@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, Tag, StickyNote, User, Phone, Plus, Trash2 } from 'lucide-react';
 import api from '../../api';
 import { formatPhone } from '../../utils/phone';
+import { formatDateBr, formatDateTimeBr } from '../../utils/timezone';
 
 export default function ChatSidebar({ conversation, messages, onClose, onTagsChange }) {
   const [tab, setTab] = useState('detalhes');
@@ -92,7 +93,7 @@ export default function ChatSidebar({ conversation, messages, onClose, onTagsCha
             <div>
               <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Conversa iniciada</div>
               <div className="text-sm text-slate-600">
-                {new Date(conversation.createdAt || conversation.created_at).toLocaleDateString('pt-BR', {
+                {formatDateBr(conversation.createdAt || conversation.created_at, {
                   day: '2-digit', month: 'long', year: 'numeric',
                 })}
               </div>
@@ -153,7 +154,7 @@ export default function ChatSidebar({ conversation, messages, onClose, onTagsCha
                 <div key={n.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                   <p className="text-sm text-amber-900 whitespace-pre-wrap">{n.body}</p>
                   <p className="text-[10px] text-amber-600 mt-1">
-                    {new Date(n.waTimestamp || n.wa_timestamp).toLocaleString('pt-BR')}
+                    {formatDateTimeBr(n.waTimestamp || n.wa_timestamp)}
                   </p>
                 </div>
               ))

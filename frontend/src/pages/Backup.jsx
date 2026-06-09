@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Database, Download, RotateCcw, Trash2, Save, Loader2, Inbox, Info, ShieldCheck } from 'lucide-react';
 import api from '../api';
+import { formatDateTimeBr } from '../utils/timezone';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 function fmtTs(ts) {
   if (!ts) return '—';
-  return new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatDateTimeBr(ts, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function fmtSize(bytes) {

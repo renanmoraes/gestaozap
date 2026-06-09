@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import api from '../../api';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
+import { formatDateBr, formatDateTimeBr } from '../../utils/timezone';
 
 const PLANS = ['starter', 'pro', 'business'];
 
@@ -312,7 +313,7 @@ export default function AdminTenantDetail() {
               <div className="text-sm text-slate-800">
                 {daysToExpiry} dias
                 <div className="text-xs text-slate-400">
-                  {new Date(t.contract_expires_at).toLocaleDateString('pt-BR')}
+                  {formatDateBr(t.contract_expires_at)}
                 </div>
               </div>
             ) : (
@@ -322,7 +323,7 @@ export default function AdminTenantDetail() {
           <div>
             <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Criado em</div>
             <div className="text-sm text-slate-800">
-              {new Date(t.created_at).toLocaleDateString('pt-BR')}
+              {formatDateBr(t.created_at)}
             </div>
             <div className="text-xs text-slate-400">
               {Math.floor((new Date() - new Date(t.created_at)) / (1000 * 60 * 60 * 24))} dias atrás
@@ -405,7 +406,7 @@ export default function AdminTenantDetail() {
               {t.terms_accepted_at ? (
                 <div className="text-sm text-emerald-700 flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4" />
-                  Aceito em {new Date(t.terms_accepted_at).toLocaleDateString('pt-BR')}
+                  Aceito em {formatDateBr(t.terms_accepted_at)}
                   <span className="text-xs text-slate-400">(v{t.terms_version})</span>
                 </div>
               ) : (
@@ -514,7 +515,7 @@ export default function AdminTenantDetail() {
                 <span className="text-xs text-slate-500 uppercase tracking-wide">Último visto</span>
                 <span className="text-sm text-slate-800">
                   {t.last_seen_at
-                    ? new Date(t.last_seen_at).toLocaleString('pt-BR')
+                    ? formatDateTimeBr(t.last_seen_at)
                     : 'Nunca'}
                 </span>
               </div>
@@ -597,9 +598,9 @@ export default function AdminTenantDetail() {
                     <div className="font-medium text-slate-800">{c.plan_name || '—'}</div>
                     {c.price_brl && <div className="text-xs text-slate-500">R$ {Number(c.price_brl).toFixed(2)}/mês</div>}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{new Date(c.started_at).toLocaleDateString('pt-BR')}</td>
+                  <td className="px-4 py-3 text-slate-600">{formatDateBr(c.started_at)}</td>
                   <td className="px-4 py-3 text-slate-600">
-                    {c.expires_at ? new Date(c.expires_at).toLocaleDateString('pt-BR') : <span className="text-emerald-700">Vitalício</span>}
+                    {c.expires_at ? formatDateBr(c.expires_at) : <span className="text-emerald-700">Vitalício</span>}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`badge-${
@@ -647,7 +648,7 @@ export default function AdminTenantDetail() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-xs">
-                    {new Date(p.created_at).toLocaleDateString('pt-BR')}
+                    {formatDateBr(p.created_at)}
                   </td>
                 </tr>
               ))}
@@ -738,7 +739,7 @@ function DlqPanel({ tenantId }) {
                 <td className="px-4 py-3 text-slate-800">{it.name}</td>
                 <td className="px-4 py-3 text-slate-600 font-mono text-xs">{it.phone}</td>
                 <td className="px-4 py-3 text-amber-700 text-xs">{it.error || '—'}</td>
-                <td className="px-4 py-3 text-slate-500 text-xs">{new Date(it.updated_at).toLocaleString('pt-BR')}</td>
+                <td className="px-4 py-3 text-slate-500 text-xs">{formatDateTimeBr(it.updated_at)}</td>
               </tr>
             ))}
           </tbody>
@@ -792,7 +793,7 @@ function IncidentsPanel({ tenantId }) {
                 {ev.resolved && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">resolvido</span>}
               </div>
               <pre className="text-[11px] mt-1.5 overflow-x-auto bg-white/40 p-2 rounded">{JSON.stringify(ev.payload, null, 2)}</pre>
-              <div className="text-[10px] text-slate-500 mt-1">{new Date(ev.created_at).toLocaleString('pt-BR')}</div>
+              <div className="text-[10px] text-slate-500 mt-1">{formatDateTimeBr(ev.created_at)}</div>
             </div>
             {!ev.resolved && (
               <button onClick={() => resolve(ev.id)} className="text-xs px-2 py-1 bg-white/60 hover:bg-white rounded text-slate-700 shrink-0">

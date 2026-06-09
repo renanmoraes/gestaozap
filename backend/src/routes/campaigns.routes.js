@@ -16,7 +16,14 @@ const storage = multer.diskStorage({
     cb(null, `${randomUUID()}${ext}`);
   },
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 16 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = /^image\/(jpeg|png|webp|gif)$/i.test(file.mimetype || '');
+    cb(ok ? null : new Error('Imagem inválida — use JPG, PNG, WebP ou GIF (máx. 16 MB)'), ok);
+  },
+});
 
 function getTenantId(req) {
   return (req.tenant && req.tenant.id) || DEFAULT_TENANT_ID;

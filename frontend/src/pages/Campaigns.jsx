@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Image, Eye, ToggleLeft, ToggleRight, Info } from 'lucide-react';
 import api from '../api';
 import { renderWhatsAppLikeText } from '../utils/whatsappFormat';
+import {
+  CAMPAIGN_IMAGE_ACCEPT,
+  CAMPAIGN_IMAGE_HINT,
+  formatFileSize,
+  validateCampaignImage,
+} from '../utils/upload';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -31,6 +37,7 @@ export default function Campaigns() {
     optOutText: 'Para não receber mais mensagens, responda *SAIR*',
   });
   const [image, setImage] = useState(null);
+  const [imageError, setImageError] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
   const [editing, setEditing] = useState(null);
 
@@ -48,8 +55,25 @@ export default function Campaigns() {
     return undefined;
   }, [image, form.imagePath]);
 
+  const handleImageSelect = (selected) => {
+    if (!selected) {
+      setImage(null);
+      setImageError('');
+      return;
+    }
+    const result = validateCampaignImage(selected);
+    if (!result.ok) {
+      setImage(null);
+      setImageError(result.error);
+      return;
+    }
+    setImageError('');
+    setImage(selected);
+  };
+
   const save = async (e) => {
     e.preventDefault();
+    if (imageError) return;
     const fd = new FormData();
     fd.append('name', form.name);
     fd.append('text', form.text);
@@ -60,6 +84,7 @@ export default function Campaigns() {
     else { await api.post('/api/campaigns', fd); }
     setForm({ name: '', text: '', appendOptOut: false, optOutText: 'Para não receber mais mensagens, responda *SAIR*' });
     setImage(null);
+    setImageError('');
     load();
   };
 
@@ -71,6 +96,7 @@ export default function Campaigns() {
   const edit = (c) => {
     setEditing(c._id);
     setImage(null);
+    setImageError('');
     setForm({
       name: c.name, text: c.text,
       appendOptOut: c.appendOptOut || false,
@@ -141,12 +167,30 @@ export default function Campaigns() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Imagem (opcional)</label>
-                <input type="file" accept="image/*" onChange={(e) => setImage(e.target.files[0])}
-                  className="block w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100" />
+                <input
+                  type="file"
+                  accept={CAMPAIGN_IMAGE_ACCEPT}
+                  onChange={(e) => {
+                    handleImageSelect(e.target.files[0] || null);
+                    e.target.value = '';
+                  }}
+                  className="block w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100"
+                />
+                <p className="mt-1.5 text-[11px] text-slate-500">{CAMPAIGN_IMAGE_HINT}</p>
+                {image && !imageError && (
+                  <p className="mt-1 text-[11px] text-emerald-700">
+                    {image.name} · {formatFileSize(image.size)}
+                  </p>
+                )}
+                {imageError && (
+                  <p className="mt-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2">
+                    {imageError}
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2">
-                <button type="submit" className="btn-primary flex-1">
+                <button type="submit" className="btn-primary flex-1" disabled={Boolean(imageError)}>
                   <Plus className="w-4 h-4" />
                   {editing ? 'Salvar alterações' : 'Criar template'}
                 </button>

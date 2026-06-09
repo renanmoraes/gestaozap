@@ -1,6 +1,7 @@
 const { eq, and, lte, isNotNull } = require('drizzle-orm');
 const { getDb } = require('../db');
 const { contracts, tenants, whatsappSessions } = require('../db/schema');
+const { msUntilMidnightBr } = require('../utils/timezone.util');
 
 /**
  * Desativa tenants cujos contratos venceram.
@@ -73,11 +74,7 @@ async function deactivateExpiredContracts() {
 }
 
 function msUntilMidnight() {
-  // TZ=America/Sao_Paulo no container — new Date() opera no fuso correto
-  const now = new Date();
-  const midnight = new Date(now);
-  midnight.setHours(24, 0, 0, 0); // próxima meia-noite local
-  return midnight - now;
+  return msUntilMidnightBr();
 }
 
 function scheduleContractExpiryCheck() {

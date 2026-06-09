@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../../api';
 import { formatPhone, maskPhoneInput } from '../../utils/phone';
+import { formatDateBr } from '../../utils/timezone';
 
 function PendingApprovals({ items, onChange }) {
   const [busy, setBusy] = useState(null);
@@ -111,7 +112,7 @@ function TenantRow({ tenant }) {
         ) : tenant.contract_expires_at ? (
           <div>
             <div className="text-slate-700">
-              {new Date(tenant.contract_expires_at).toLocaleDateString('pt-BR')}
+              {formatDateBr(tenant.contract_expires_at)}
             </div>
             {daysToExpiry != null && daysToExpiry <= 7 && daysToExpiry > 0 && (
               <div className="text-amber-600 text-[10px]">vence em {daysToExpiry}d</div>

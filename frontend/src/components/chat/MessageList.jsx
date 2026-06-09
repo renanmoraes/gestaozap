@@ -2,19 +2,14 @@ import React from 'react';
 import { Loader2, ArrowDown } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import { useChatScroll } from '../../hooks/useChatScroll';
+import { formatDayLabelBr, isSameCalendarDayBr } from '../../utils/timezone';
 
 function isSameDay(a, b) {
-  const da = new Date(a); const db = new Date(b);
-  return da.toDateString() === db.toDateString();
+  return isSameCalendarDayBr(a, b);
 }
 
 function formatDay(ts) {
-  const d = new Date(ts);
-  const today = new Date();
-  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'Hoje';
-  if (d.toDateString() === yesterday.toDateString()) return 'Ontem';
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+  return formatDayLabelBr(ts);
 }
 
 export default function MessageList({ messages, loading, loadingMore, hasMore, onLoadOlder }) {

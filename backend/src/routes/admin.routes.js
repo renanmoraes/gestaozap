@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { eq, and, lte, sql, desc } = require('drizzle-orm');
 const { getDb } = require('../db');
+const { getMonthKeyBr } = require('../utils/timezone.util');
 const {
   tenants,
   whatsappSessions,
@@ -292,7 +293,7 @@ router.get('/tenants/:id', async (req, res) => {
     if (!detail) return res.status(404).json({ error: 'Cliente não encontrado' });
 
     // Métricas: contatos, campanhas, backup count, mensagens (mês corrente e total)
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = getMonthKeyBr();
     const stats = await db.execute(sql`
       SELECT
         (SELECT COUNT(*)::int FROM contacts WHERE tenant_id = ${tenantId} AND active = true) AS contacts,

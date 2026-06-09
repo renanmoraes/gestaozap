@@ -14,6 +14,7 @@ const guard = require('./whatsapp.guard');
 const metrics = require('./metrics.service');
 const incidents = require('./incidents.service');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
+const { getMonthKeyBr, isOutsideSendWindow } = require('../utils/timezone.util');
 
 function getBatchSize()             { return getConfigInt('batch_size', 30); }
 function getBatchPauseMs()          { return getConfigInt('batch_pause_ms', 600_000); }
@@ -66,7 +67,7 @@ async function waitWhilePaused(tenantId, jobId, io, ctx) {
 }
 
 async function trackMessageUsage(db, tenantId, sendLogId) {
-  const month = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+  const month = getMonthKeyBr();
   const [contract] = await db.select({ id: contracts.id })
     .from(contracts)
     .where(and(eq(contracts.tenantId, tenantId), eq(contracts.status, 'active')))
@@ -119,8 +120,7 @@ function buildProcessor(io) {
       const db = getDb();
       job.progress(0);
 
-      const hour = new Date().getHours();
-      if (!ignoreHours && (hour < hourStart || hour >= hourEnd)) {
+      if (!ignoreHours && isOutsideSendWindow(hourStart, hourEnd)) {
         const total = contacts.length;
         io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount: 0, failedCount: 0, total, skippedForHours: true, hourStart, hourEnd });
         return { sentCount: 0, failedCount: 0, total, skippedForHours: true };

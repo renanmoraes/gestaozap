@@ -1,8 +1,9 @@
 const router = require('express').Router();
-const { eq, and, or, ilike, inArray } = require('drizzle-orm');
-const { getDb, DEFAULT_TENANT_ID } = require('../db');
+const { eq, and, or, ilike, inArray, sql } = require('drizzle-orm');
+const { getDb, getPool, DEFAULT_TENANT_ID } = require('../db');
 const { contacts } = require('../db/schema');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
+const { formatStampBr } = require('../utils/timezone.util');
 const { requireWAConnected } = require('../middleware/featureGate');
 const whatsapp = require('../services/whatsapp.service');
 
@@ -10,37 +11,91 @@ function getTenantId(req) {
   return (req.tenant && req.tenant.id) || DEFAULT_TENANT_ID;
 }
 
+function buildListConditions(tenantId, query = {}) {
+  const q = String(query.q ?? query.search ?? '').trim();
+  const conditions = [
+    eq(contacts.tenantId, tenantId),
+    eq(contacts.active, true),
+  ];
+
+  if (query.tag) {
+    conditions.push(sql`${contacts.tags} @> ARRAY[${query.tag}]::text[]`);
+  }
+
+  if (q) {
+    const digitsQ = q.replace(/\D/g, '');
+    const orConditions = [ilike(contacts.name, `%${q}%`)];
+    if (digitsQ.length >= 2) {
+      orConditions.push(ilike(contacts.phone, `%${digitsQ}%`));
+    }
+    conditions.push(or(...orConditions));
+  }
+
+  const optedOutMode = String(query.optedOut || 'hide');
+  if (optedOutMode === 'only') {
+    conditions.push(eq(contacts.optedOut, true));
+  } else if (optedOutMode !== 'all') {
+    conditions.push(eq(contacts.optedOut, false));
+  }
+
+  return { conditions, q };
+}
+
+async function fetchContactTags(tenantId) {
+  const { rows } = await getPool().query(
+    `SELECT DISTINCT unnest(tags) AS tag
+     FROM contacts
+     WHERE tenant_id = $1 AND active = true
+     ORDER BY tag`,
+    [tenantId],
+  );
+  return rows.map((r) => r.tag).filter(Boolean);
+}
+
+async function fetchOptedOutCount(tenantId) {
+  const db = getDb();
+  const [row] = await db.select({ count: sql`count(*)::int` })
+    .from(contacts)
+    .where(and(
+      eq(contacts.tenantId, tenantId),
+      eq(contacts.active, true),
+      eq(contacts.optedOut, true),
+    ));
+  return row?.count ?? 0;
+}
+
 router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const tenantId = getTenantId(req);
-    const q = String(req.query.q ?? req.query.search ?? '').trim();
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(10, parseInt(req.query.limit, 10) || 50));
+    const offset = (page - 1) * limit;
+    const { conditions } = buildListConditions(tenantId, req.query);
+    const where = and(...conditions);
 
-    const conditions = [
-      eq(contacts.tenantId, tenantId),
-      eq(contacts.active, true),
-    ];
+    const [[countRow], rows, tags, optedOutCount] = await Promise.all([
+      db.select({ count: sql`count(*)::int` }).from(contacts).where(where),
+      db.select().from(contacts)
+        .where(where)
+        .orderBy(contacts.createdAt)
+        .limit(limit)
+        .offset(offset),
+      fetchContactTags(tenantId),
+      fetchOptedOutCount(tenantId),
+    ]);
 
-    if (req.query.tag) {
-      // Array contains: tag is in contacts.tags
-      const { sql } = require('drizzle-orm');
-      conditions.push(sql`${contacts.tags} @> ARRAY[${req.query.tag}]::text[]`);
-    }
+    const total = countRow?.count ?? 0;
 
-    if (q) {
-      const digitsQ = q.replace(/\D/g, '');
-      const orConditions = [ilike(contacts.name, `%${q}%`)];
-      if (digitsQ.length >= 2) {
-        orConditions.push(ilike(contacts.phone, `%${digitsQ}%`));
-      }
-      conditions.push(or(...orConditions));
-    }
-
-    const rows = await db.select().from(contacts)
-      .where(and(...conditions))
-      .orderBy(contacts.createdAt);
-
-    res.json(rows.map(normalizeDoc));
+    res.json({
+      items: rows.map(normalizeDoc),
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      optedOutCount,
+      tags,
+    });
   } catch (err) {
     console.error('contacts get:', err);
     res.status(500).json({ error: err.message });
@@ -406,7 +461,7 @@ router.get('/export', async (req, res) => {
     const tenantId = getTenantId(req);
     const pool = getPool();
 
-    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '').replace(/-/g, '');
+    const ts = formatStampBr();
     const filename = `contatos-${ts}.json`;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
