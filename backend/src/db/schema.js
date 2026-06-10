@@ -315,6 +315,9 @@ const features = pgTable('features', {
   isSystem: boolean('is_system').notNull().default(false),
   active: boolean('active').notNull().default(true),
   billingDay: integer('billing_day').notNull().default(5),
+  // Planos (por slug) que já incluem esta feature sem custo extra. Hierárquico:
+  // incluir 'pro' vale para pro e superiores (business). Vazio = só addon pago.
+  includedInPlans: text('included_in_plans').array().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

@@ -817,6 +817,9 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
       {(() => {
         const ActionButtons = ({ f }) => {
           const active = f.tenantActive;
+          if (f.includedViaPlan) {
+            return <span className="text-xs text-slate-400">—</span>;
+          }
           return active ? (
             <>
               {!f.isFree && (
@@ -840,6 +843,13 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
         };
         const StatusBadge = ({ f }) => {
           const sub = f.subscription;
+          if (f.includedViaPlan) {
+            return (
+              <span className="text-xs font-medium text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">
+                Incluído no plano
+              </span>
+            );
+          }
           if (!f.tenantActive) return <span className="text-xs text-slate-500">Inativo</span>;
           return (
             <div className="flex flex-wrap items-center gap-1.5">

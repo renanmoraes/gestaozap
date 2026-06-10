@@ -963,6 +963,11 @@ async function runMigrations(pool) {
     // Regras do tenant: 1 por intent_key por tenant
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_intent_rule_tenant_key ON intent_rules (tenant_id, intent_key) WHERE tenant_id IS NOT NULL;`);
 
+    // Feature inclusa em plano (sem custo extra) — hierárquico por slug de plano.
+    await client.query(`
+      ALTER TABLE features ADD COLUMN IF NOT EXISTS included_in_plans TEXT[] NOT NULL DEFAULT '{}';
+    `);
+
     await client.query('COMMIT');
     console.log('[db] migrations completed');
   } catch (err) {

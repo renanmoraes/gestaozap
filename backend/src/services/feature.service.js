@@ -5,9 +5,32 @@ const {
   featureRequests,
   contracts,
   tenants,
+  plans,
 } = require('../db/schema');
 const { tenantHasActiveAccess } = require('../utils/access.util');
 const { endOfCalendarDayBr } = require('../utils/timezone.util');
+
+// Hierarquia de planos: incluir num plano vale para ele e superiores.
+const PLAN_TIER = { starter: 1, pro: 2, business: 3 };
+
+/** True se o plano do tenant inclui a feature (regra hierárquica por tier). */
+function planIncludesFeature(planSlug, includedInPlans) {
+  if (!planSlug || !Array.isArray(includedInPlans) || !includedInPlans.length) return false;
+  const tenantTier = PLAN_TIER[planSlug] || 0;
+  const minIncluded = Math.min(...includedInPlans.map((s) => PLAN_TIER[s] || 99));
+  return tenantTier >= minIncluded;
+}
+
+async function getPlanSlugById(db, planId) {
+  if (!planId) return null;
+  const [p] = await db.select({ slug: plans.slug }).from(plans).where(eq(plans.id, planId)).limit(1);
+  return p?.slug || null;
+}
+
+function sanitizeIncludedPlans(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((s) => String(s).toLowerCase().trim()).filter((s) => PLAN_TIER[s]))];
+}
 
 async function getActiveContract(db, tenantId) {
   const [contract] = await db.select().from(contracts)
@@ -36,6 +59,12 @@ async function tenantHasFeature(db, tenantId, featureSlug, now = new Date()) {
 
   if (feature.isFree) {
     return { active: true, feature, subscription: null };
+  }
+
+  // Inclusa no plano do tenant → ativa sem custo extra (sem assinatura paga).
+  const planSlug = await getPlanSlugById(db, contract?.planId);
+  if (planIncludesFeature(planSlug, feature.includedInPlans)) {
+    return { active: true, feature, subscription: null, includedViaPlan: true, planSlug };
   }
 
   const [sub] = await db.select().from(tenantFeatures)
@@ -79,7 +108,12 @@ async function listTenantFeatures(db, tenantId) {
   const rows = await Promise.all(catalog.map(async (f) => {
     const sub = subByFeature.get(f.id);
     const access = await tenantHasFeature(db, tenantId, f.slug, now);
-    return { ...f, subscription: sub || null, tenantActive: access.active };
+    return {
+      ...f,
+      subscription: sub || null,
+      tenantActive: access.active,
+      includedViaPlan: !!access.includedViaPlan,
+    };
   }));
 
   return rows;
@@ -209,6 +243,7 @@ async function createOrUpdateFeature(db, data, id = null) {
     isFree: !!data.isFree,
     active: data.active !== false,
     billingDay: Number(data.billingDay) || 5,
+    includedInPlans: sanitizeIncludedPlans(data.includedInPlans),
     updatedAt: new Date(),
   };
 
@@ -235,4 +270,7 @@ module.exports = {
   listPendingRequests,
   createOrUpdateFeature,
   getActiveContract,
+  getPlanSlugById,
+  planIncludesFeature,
+  PLAN_TIER,
 };

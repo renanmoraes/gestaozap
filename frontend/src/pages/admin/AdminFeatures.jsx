@@ -12,7 +12,23 @@ const EMPTY = {
   isFree: false,
   active: true,
   billingDay: 5,
+  includedInPlans: [],
 };
+
+// Planos que podem incluir addons (hierárquico: Pro ⊂ Business).
+const PLAN_OPTIONS = [
+  { slug: 'pro', label: 'Pro' },
+  { slug: 'business', label: 'Business' },
+];
+const PLAN_TIER = { starter: 1, pro: 2, business: 3 };
+
+// Aplica hierarquia: se incluído no Pro, Business herda automaticamente.
+function planEffectivelyIncluded(slug, includedInPlans) {
+  if (!includedInPlans?.length) return false;
+  const tier = PLAN_TIER[slug] || 0;
+  const min = Math.min(...includedInPlans.map((s) => PLAN_TIER[s] || 99));
+  return tier >= min;
+}
 
 function formatMoney(v) {
   const n = parseFloat(v);
@@ -52,6 +68,7 @@ export default function AdminFeatures() {
       isFree: row.isFree,
       active: row.active,
       billingDay: row.billingDay,
+      includedInPlans: row.includedInPlans || [],
     });
   };
 
@@ -158,6 +175,36 @@ export default function AdminFeatures() {
               />
               Ativa no catálogo
             </label>
+
+            {!form.isFree && (
+              <div className="md:col-span-2 border-t border-slate-100 pt-3">
+                <div className="text-sm font-medium text-slate-700">Incluir gratuitamente em planos</div>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                  Quem estiver nesses planos usa esta feature <strong>sem pagar a mais</strong>. Hierárquico: marcar Pro inclui Business.
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  {PLAN_OPTIONS.map((p) => {
+                    const explicit = form.includedInPlans.includes(p.slug);
+                    const inherited = !explicit && planEffectivelyIncluded(p.slug, form.includedInPlans);
+                    return (
+                      <label key={p.slug} className={`flex items-center gap-2 text-sm ${inherited ? 'opacity-60' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={explicit || inherited}
+                          disabled={inherited}
+                          onChange={(e) => setForm((f) => {
+                            const set = new Set(f.includedInPlans);
+                            if (e.target.checked) set.add(p.slug); else set.delete(p.slug);
+                            return { ...f, includedInPlans: [...set] };
+                          })}
+                        />
+                        Plano {p.label}{inherited ? ' (herdado)' : ''}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={saving} className="btn btn-primary flex items-center gap-2">
@@ -207,6 +254,15 @@ export default function AdminFeatures() {
                       <span className="text-emerald-700 font-medium">Grátis</span>
                     ) : (
                       <span>{formatMoney(row.priceBrl)}/mês</span>
+                    )}
+                    {!row.isFree && row.includedInPlans?.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {PLAN_OPTIONS.filter((p) => planEffectivelyIncluded(p.slug, row.includedInPlans)).map((p) => (
+                          <span key={p.slug} className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+                            incluso no {p.label}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </td>
                   <td className="p-3">

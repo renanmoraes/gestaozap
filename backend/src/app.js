@@ -93,7 +93,9 @@ app.use('/api/features', tenantResolver, authGuard, require('./routes/features.r
 app.use('/api/promotions', tenantResolver, authGuard, require('./routes/promotions.routes'));
 app.use('/api/bookings', tenantResolver, authGuard, require('./routes/bookings.routes'));
 app.use('/api/intent-rules', tenantResolver, authGuard, require('./routes/intent-rules.routes'));
+app.use('/api/upsell', tenantResolver, authGuard, require('./routes/upsell.routes'));
 app.use('/api/tenant/profile', tenantResolver, authGuard, require('./routes/tenant-profile.routes'));
+app.use('/api/public/landing', require('./routes/public-landing.routes'));
 app.use('/api/public/promotions', tenantResolver, require('./routes/public-promotions.routes'));
 app.use('/api/public/bookings', tenantResolver, require('./routes/public-bookings.routes'));
 app.use('/api/oauth/google-calendar', require('./routes/google-calendar-oauth.routes'));

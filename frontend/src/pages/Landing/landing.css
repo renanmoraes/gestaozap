@@ -464,6 +464,8 @@ body.landing-page.hero-light .nav:not(.scrolled):not(.menu-open) .nav-toggle { c
 .plan.pop .plan-feat li { color: rgba(255,255,255,.82); }
 .plan-feat li svg { width: 17px; height: 17px; color: var(--emerald-500); flex: none; margin-top: 1px; }
 .plan.pop .plan-feat li svg { color: var(--emerald-400); }
+.plan-incl-tag { margin-left: auto; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding: 2px 7px; border-radius: 999px; background: rgba(124,58,237,.10); color: #7c3aed; white-space: nowrap; }
+.plan.pop .plan-incl-tag { background: rgba(255,255,255,.16); color: #fff; }
 .plan .btn { width: 100%; }
 
 /* ============================================================

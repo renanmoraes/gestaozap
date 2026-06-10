@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket';
 import { useTenant } from '../context/TenantContext';
 import IntentSegmentation from '../components/send/IntentSegmentation';
+import UpsellBanner from '../components/UpsellBanner';
 import api from '../api';
 import { DEFAULT_HOUR_START, DEFAULT_HOUR_END, getCurrentHourBr, isOutsideRecommendedHours, confirmSendOutsideHours } from '../utils/hours';
 import { formatDateTimeBr } from '../utils/timezone';
@@ -301,6 +302,7 @@ export default function SendPage() {
       </div>
 
       <div className="page-content">
+        <UpsellBanner context="send" className="mb-1" />
         {notice && (
           <div className="flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
             <Info className="w-4 h-4 shrink-0 mt-0.5" />{notice}

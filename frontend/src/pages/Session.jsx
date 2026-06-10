@@ -3,6 +3,7 @@ import { Wifi, WifiOff, Loader2, RefreshCw, Send, CheckCircle2, AlertCircle, QrC
 import { useSocket } from '../hooks/useSocket';
 import { useTenant } from '../context/TenantContext';
 import api from '../api';
+import UpsellBanner from '../components/UpsellBanner';
 
 function StatusBadge({ status }) {
   if (status === 'connected') return (
@@ -75,6 +76,7 @@ export default function Session() {
       </div>
 
       <div className="page-content max-w-2xl">
+        {status === 'connected' && <UpsellBanner context="session" className="mb-4" />}
         {/* Connection card */}
         <div className="card p-6 space-y-4">
           <div className="flex items-center gap-3">

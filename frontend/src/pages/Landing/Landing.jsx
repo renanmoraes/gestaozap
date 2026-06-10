@@ -1,10 +1,36 @@
 import { useEffect, useRef } from 'react';
+import { createIcons, icons } from 'lucide';
 import landingBody from './landing-body.html?raw';
 import { initLandingEffects } from './useLandingEffects';
 import { persistAffiliateRef } from '../../utils/affiliateRef';
 import api from '../../api';
 import './styles.css';
 import './landing.css';
+
+// Injeta dinamicamente nos cards de plano as features pagas inclusas em cada plano.
+function injectIncludedFeatures(root) {
+  api.get('/api/public/landing/plan-features')
+    .then(({ data }) => {
+      const plans = data?.plans || {};
+      let changed = false;
+      root.querySelectorAll('#planos .plan').forEach((card) => {
+        const slug = card.querySelector('.pname')?.textContent?.trim().toLowerCase();
+        const feats = plans[slug] || [];
+        const ul = card.querySelector('.plan-feat');
+        if (!feats.length || !ul) return;
+        feats.forEach((f) => {
+          const li = document.createElement('li');
+          li.className = 'plan-feat-incl';
+          li.innerHTML = `<i data-lucide="check"></i>${f.name}`
+            + ' <span class="plan-incl-tag">incluso</span>';
+          ul.appendChild(li);
+          changed = true;
+        });
+      });
+      if (changed) createIcons({ icons, attrs: { 'stroke-width': 1.5 }, nameAttr: 'data-lucide' });
+    })
+    .catch(() => {});
+}
 
 export default function Landing() {
   const rootRef = useRef(null);
@@ -59,6 +85,7 @@ export default function Landing() {
     });
 
     const cleanup = initLandingEffects(root);
+    injectIncludedFeatures(root);
     return cleanup;
   }, []);
 

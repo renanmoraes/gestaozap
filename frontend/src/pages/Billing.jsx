@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import api from '../api';
 import { formatDateBr } from '../utils/timezone';
+import UpsellBanner from '../components/UpsellBanner';
 
 function PlanBadge({ slug }) {
   const colors = {
@@ -39,8 +40,49 @@ function UsageBar({ used, total }) {
   );
 }
 
+function money(v) {
+  return `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+}
+
+const PAY_TYPE_LABELS = {
+  subscription: 'Assinatura',
+  per_message: 'Mensagens excedentes',
+  credit: 'Crédito',
+  refund: 'Estorno',
+};
+
+const EXTRATO_BADGE = {
+  addon: 'bg-brand-50 text-brand-700 border-brand-100',
+  incluído: 'bg-violet-50 text-violet-700 border-violet-100',
+  grátis: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  cortesia: 'bg-violet-50 text-violet-700 border-violet-100',
+  excedente: 'bg-amber-50 text-amber-700 border-amber-100',
+};
+
+function ExtratoLine({ label, sub, value, badge }) {
+  const free = !value || Number(value) === 0;
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-slate-800">{label}</span>
+          {badge && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${EXTRATO_BADGE[badge] || EXTRATO_BADGE.addon}`}>
+              {badge}
+            </span>
+          )}
+        </div>
+        {sub && <div className="text-[11px] text-slate-400 mt-0.5">{sub}</div>}
+      </div>
+      <div className={`text-sm font-semibold shrink-0 ${free ? 'text-slate-400' : 'text-slate-900'}`}>
+        {free ? 'R$ 0,00' : money(value)}
+      </div>
+    </div>
+  );
+}
+
 export default function Billing() {
-  const [summary, setSummary]   = useState(null); // { contract, isLifetime, usage, daysUntilExpiry }
+  const [summary, setSummary]   = useState(null); // { contract, isLifetime, usage, addons, costs, daysUntilExpiry }
   const [history, setHistory]   = useState({ records: [], total: 0 });
   const [usage, setUsage]       = useState([]);
   const [quota, setQuota]       = useState(null);
@@ -88,6 +130,7 @@ export default function Billing() {
       </div>
 
       <div className="page-content max-w-4xl space-y-6">
+        <UpsellBanner context="billing" />
 
         {/* Sem contrato */}
         {noContract && (
@@ -203,6 +246,58 @@ export default function Billing() {
           </div>
         )}
 
+        {/* Extrato descritivo do mês */}
+        {summary?.contract && summary.costs && (
+          <div className="card p-5 space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Extrato do mês — {summary.usage.currentMonth}</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Tudo que compõe a sua cobrança, item a item. Nada escondido.</p>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              <ExtratoLine
+                label={`Plano ${summary.contract.plan_name || ''}`.trim()}
+                sub="Assinatura mensal"
+                value={summary.costs.planBrl}
+              />
+              {(summary.addons || []).filter((a) => a.kind === 'addon').map((a) => (
+                <ExtratoLine
+                  key={a.slug}
+                  label={a.name}
+                  sub={a.isComplimentary
+                    ? 'Liberação de cortesia — sem cobrança'
+                    : `Addon contratado${a.expiresAt ? ` · válido até ${formatDateBr(a.expiresAt)}` : ''}`}
+                  value={a.isComplimentary ? 0 : a.priceBrl}
+                  badge={a.isComplimentary ? 'cortesia' : 'addon'}
+                />
+              ))}
+              {(summary.addons || []).filter((a) => a.kind === 'included').map((a) => (
+                <ExtratoLine key={a.slug} label={a.name} sub="Já incluído no seu plano" value={0} badge="incluído" />
+              ))}
+              {(summary.addons || []).filter((a) => a.kind === 'free').map((a) => (
+                <ExtratoLine key={a.slug} label={a.name} sub="Gratuito em todos os planos" value={0} badge="grátis" />
+              ))}
+              {summary.usage.messagesExtra > 0 && (
+                <ExtratoLine
+                  label="Mensagens excedentes"
+                  sub={`${summary.usage.messagesExtra.toLocaleString('pt-BR')} além das incluídas`
+                    + (summary.usage.overageUnitBrl ? ` × ${money(summary.usage.overageUnitBrl)} cada` : '')}
+                  value={summary.costs.overageBrl}
+                  badge="excedente"
+                />
+              )}
+            </div>
+
+            <div className="flex items-end justify-between gap-3 pt-3 border-t border-slate-200">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Total estimado do mês</div>
+                <div className="text-[11px] text-slate-400">Estimativa pelo uso atual — pode mudar até o fechamento.</div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">{money(summary.costs.totalBrl)}</div>
+            </div>
+          </div>
+        )}
+
         {/* Gráfico de uso */}
         {usage.length > 0 && (
           <div className="card p-6">
@@ -250,9 +345,14 @@ export default function Billing() {
               <div className="divide-y divide-slate-100">
                 {history.records.map((r) => (
                   <div key={r.id} className="px-6 py-4 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">
-                        {r.description || (r.type === 'subscription' ? 'Assinatura' : r.type)}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-slate-800">
+                          {r.description || PAY_TYPE_LABELS[r.type] || r.type}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                          {PAY_TYPE_LABELS[r.type] || r.type}
+                        </span>
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">
                         {r.reference_month && `Ref. ${r.reference_month} · `}

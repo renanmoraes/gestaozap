@@ -3,6 +3,7 @@ const { eq, and, desc, sql } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { contracts, plans, paymentRecords, sendLogs } = require('../db/schema');
 const { getMonthKeyBr } = require('../utils/timezone.util');
+const { listTenantFeatures } = require('../services/feature.service');
 
 function getTenantId(req) {
   return (req.tenant && req.tenant.id) || DEFAULT_TENANT_ID;
@@ -29,7 +30,8 @@ router.get('/summary', async (req, res) => {
         p.name AS plan_name,
         p.slug AS plan_slug,
         p.price_brl,
-        p.messages_per_month
+        p.messages_per_month,
+        p.overage_price_brl
       FROM contracts c
       JOIN plans p ON p.id = c.plan_id
       WHERE c.tenant_id = ${tenantId}
@@ -65,6 +67,40 @@ router.get('/summary', async (req, res) => {
       }
     }
 
+    // Addons/recursos ativos do tenant — extrato descritivo, nada escondido.
+    let addons = [];
+    try {
+      const featRows = await listTenantFeatures(db, tenantId);
+      addons = featRows
+        .filter((f) => f.tenantActive)
+        .map((f) => {
+          const kind = f.isFree ? 'free' : f.includedViaPlan ? 'included' : 'addon';
+          const priceBrl = kind === 'addon'
+            ? String(f.subscription?.priceSnapshot ?? f.priceBrl ?? '0')
+            : '0';
+          return {
+            slug: f.slug,
+            name: f.name,
+            kind, // free | included | addon
+            priceBrl,
+            isComplimentary: !!f.subscription?.isComplimentary,
+            expiresAt: f.subscription?.expiresAt || null,
+          };
+        })
+        .sort((a, b) => (a.kind === 'addon' ? -1 : 1) - (b.kind === 'addon' ? -1 : 1));
+    } catch (e) {
+      console.warn('[billing] addons summary falhou:', e.message);
+    }
+
+    // Custos do mês (estimativa transparente)
+    const planBrl = Number(activeContract?.price_brl || 0);
+    const addonsBrl = addons
+      .filter((a) => a.kind === 'addon' && !a.isComplimentary)
+      .reduce((s, a) => s + Number(a.priceBrl || 0), 0);
+    const overageUnit = activeContract?.overage_price_brl != null ? Number(activeContract.overage_price_brl) : null;
+    const overageBrl = overageUnit != null ? Math.round(messagesExtra * overageUnit * 100) / 100 : 0;
+    const totalBrl = Math.round((planBrl + addonsBrl + overageBrl) * 100) / 100;
+
     res.json({
       contract: activeContract || null,
       isLifetime,
@@ -73,8 +109,11 @@ router.get('/summary', async (req, res) => {
         messagesSent,
         messagesIncluded,
         messagesExtra,
+        overageUnitBrl: overageUnit,
         percentUsed: messagesIncluded ? Math.round((messagesSent / messagesIncluded) * 100) : null,
       },
+      addons,
+      costs: { planBrl, addonsBrl, overageBrl, totalBrl },
       daysUntilExpiry,
     });
   } catch (err) {

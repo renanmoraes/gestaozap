@@ -10,6 +10,7 @@ import MessageInput from '../components/chat/MessageInput';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import TemplateSendPicker from '../components/chat/TemplateSendPicker';
 import EmptyChat from '../components/chat/EmptyChat';
+import UpsellBanner from '../components/UpsellBanner';
 import { useTenant } from '../context/TenantContext';
 
 export default function Chat() {
@@ -90,6 +91,7 @@ export default function Chat() {
 
       {/* Painel central */}
       <main className="flex-1 flex flex-col h-full min-w-0">
+        <UpsellBanner context="chat" className="m-2 shrink-0" />
         {!activeConv ? (
           <EmptyChat />
         ) : (
