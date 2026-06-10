@@ -36,6 +36,7 @@ import Promotions from './pages/Promotions';
 import Profile from './pages/Profile';
 import ChangePassword from './pages/ChangePassword';
 import PromotionVitrinePublic from './pages/promotions/PromotionVitrinePublic';
+import BookingPublic from './pages/bookings/BookingPublic';
 import Bookings from './pages/Bookings';
 import BookingAlerts from './components/bookings/BookingAlerts';
 
@@ -246,15 +247,7 @@ function TenantLayout({ basePath = '' }) {
     window.location.pathname === `${prefix}/agendar`
     || window.location.pathname === '/agendar'
   ) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <div className="card p-8 max-w-md text-center">
-          <Calendar className="w-10 h-10 text-brand-600 mx-auto mb-3" />
-          <h1 className="text-lg font-semibold text-slate-900">Agendamento online</h1>
-          <p className="text-sm text-slate-600 mt-2">Página pública em construção (M2). Use o painel Agendamentos ou envie o link pelo chat com <code>/agendar</code>.</p>
-        </div>
-      </div>
-    );
+    return <BookingPublic />;
   }
 
   if (isLoading) {

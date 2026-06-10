@@ -38,9 +38,11 @@
 
 - [ ] Token público cancel/remarcar
 
-## M5 — Google Calendar
+## M5 — Google Calendar (empresa)
 
-- [ ] OAuth + busy windows
+- [x] OAuth Google + FreeBusy bloqueia slots (Outlook fora do escopo inicial)
+- [ ] Escolha de calendário secundário (além de primary)
+- [ ] Sincronizar booking confirmado → evento no Google
 
 ## M6 — Métricas
 

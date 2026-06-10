@@ -9,6 +9,9 @@ const {
   bookings,
   tenants,
 } = require('../db/schema');
+const { getStaffIdsForEventType } = require('./booking-config.service');
+const { scheduleReminderJobs } = require('./booking-reminder.service');
+const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { APP_TIMEZONE } = require('../utils/timezone.util');
 const {
   parseDateKey,
@@ -80,7 +83,22 @@ async function loadAvailabilityContext(db, tenantId, fromUtc, toUtc) {
         gt(bookings.endsAt, fromUtc),
       )),
   ]);
-  return { rules, exceptions, blocks, existing };
+
+  let mergedBlocks = blocks;
+  try {
+    const { fetchBusyWindows } = require('./google-calendar.service');
+    const googleBusy = await fetchBusyWindows(db, tenantId, fromUtc, toUtc);
+    if (googleBusy.length) {
+      mergedBlocks = blocks.concat(googleBusy.map((b) => ({
+        startsAt: b.startsAt,
+        endsAt: b.endsAt,
+        staffId: null,
+        allDay: false,
+      })));
+    }
+  } catch (_) {}
+
+  return { rules, exceptions, blocks: mergedBlocks, existing };
 }
 
 function resolveDayWindows(dateKey, rules, exceptions, timeZone) {
@@ -95,14 +113,45 @@ function resolveDayWindows(dateKey, rules, exceptions, timeZone) {
     .map((r) => ({ start: r.startLocalTime, end: r.endLocalTime }));
 }
 
-function isBlocked(startUtc, endUtc, blocks) {
-  return blocks.some((b) => rangesOverlap(startUtc, endUtc, b.startsAt, b.endsAt));
+function isBlocked(startUtc, endUtc, blocks, staffId = null) {
+  return blocks.some((b) => {
+    if (b.staffId && staffId && b.staffId !== staffId) return false;
+    if (b.staffId && !staffId) return false;
+    return rangesOverlap(startUtc, endUtc, b.startsAt, b.endsAt);
+  });
 }
 
-function hasBookingConflict(startUtc, endUtc, existing, bufferBefore, bufferAfter) {
+function isBlockedForAnyStaff(startUtc, endUtc, blocks) {
+  return blocks.some((b) => {
+    if (b.staffId) return false;
+    return rangesOverlap(startUtc, endUtc, b.startsAt, b.endsAt);
+  });
+}
+
+function hasBookingConflict(startUtc, endUtc, existing, bufferBefore, bufferAfter, staffId = null) {
   const paddedStart = addMinutes(startUtc, -bufferBefore);
   const paddedEnd = addMinutes(endUtc, bufferAfter);
-  return existing.some((b) => rangesOverlap(paddedStart, paddedEnd, b.startsAt, b.endsAt));
+  return existing.some((b) => {
+    if (staffId) {
+      if (b.staffId && b.staffId !== staffId) return false;
+    } else if (b.staffId) {
+      return false;
+    }
+    return rangesOverlap(paddedStart, paddedEnd, b.startsAt, b.endsAt);
+  });
+}
+
+function isStaffFreeAt(startUtc, endUtc, ctx, eventType, staffId) {
+  if (isBlocked(startUtc, endUtc, ctx.blocks, staffId)) return false;
+  if (hasBookingConflict(
+    startUtc,
+    endUtc,
+    ctx.existing,
+    eventType.bufferBeforeMin,
+    eventType.bufferAfterMin,
+    staffId,
+  )) return false;
+  return true;
 }
 
 async function getAvailableSlots(db, {
@@ -111,9 +160,14 @@ async function getAvailableSlots(db, {
   fromDate,
   toDate,
   timeZone = APP_TIMEZONE,
+  staffId = null,
 }) {
   const eventType = await getEventType(db, tenantId, eventTypeId);
   if (!eventType) throw new Error('Tipo de evento não encontrado');
+
+  const staffIds = await getStaffIdsForEventType(db, eventTypeId);
+  const useStaff = staffIds.length > 0;
+  if (staffId && !staffIds.includes(staffId)) throw new Error('Profissional inválido');
 
   const fromKey = parseDateKey(fromDate) || formatDateKeyBr(new Date(), timeZone);
   const toKey = parseDateKey(toDate) || fromKey;
@@ -125,6 +179,7 @@ async function getAvailableSlots(db, {
   const toUtc = localDateTimeToUtc(toKey, '23:59', timeZone);
 
   const ctx = await loadAvailabilityContext(db, tenantId, fromUtc, toUtc);
+  const targetStaffIds = staffId ? [staffId] : staffIds;
   const days = [];
   const dateKeys = enumerateDateKeys(fromKey, toKey);
 
@@ -149,10 +204,24 @@ async function getAvailableSlots(db, {
         const slotEnd = addMinutes(slotStart, eventType.durationMin);
 
         if (slotStart < minStart || slotStart > maxDate) continue;
-        if (isBlocked(slotStart, slotEnd, ctx.blocks)) continue;
-        if (hasBookingConflict(slotStart, slotEnd, ctx.existing, eventType.bufferBeforeMin, eventType.bufferAfterMin)) continue;
+        if (isBlockedForAnyStaff(slotStart, slotEnd, ctx.blocks)) continue;
 
-        slots.push(slotStart.toISOString());
+        let available = false;
+        if (staffId) {
+          available = isStaffFreeAt(slotStart, slotEnd, ctx, eventType, staffId);
+        } else if (useStaff) {
+          available = targetStaffIds.some((sid) => isStaffFreeAt(slotStart, slotEnd, ctx, eventType, sid));
+        } else {
+          available = !hasBookingConflict(
+            slotStart,
+            slotEnd,
+            ctx.existing,
+            eventType.bufferBeforeMin,
+            eventType.bufferAfterMin,
+          );
+        }
+
+        if (available) slots.push(slotStart.toISOString());
       }
     }
 
@@ -170,6 +239,10 @@ async function validateAndCreateBooking(db, {
   inviteeEmail,
   inviteeTimezone,
   conversationId,
+  staffId = null,
+  inviteePhone = null,
+  consentEmail = true,
+  consentWhatsapp = false,
 }) {
   const eventType = await getEventType(db, tenantId, eventTypeId);
   if (!eventType) throw new Error('Tipo de evento não encontrado');
@@ -206,8 +279,26 @@ async function validateAndCreateBooking(db, {
   if (startsAt > addMinutes(now, (eventType.maxAdvanceDays || 60) * 24 * 60)) {
     throw new Error('Horário além do limite de antecedência');
   }
-  if (isBlocked(startsAt, endsAt, ctx.blocks)) throw new Error('Horário bloqueado');
-  if (hasBookingConflict(startsAt, endsAt, ctx.existing, eventType.bufferBeforeMin, eventType.bufferAfterMin)) {
+  if (isBlockedForAnyStaff(startsAt, endsAt, ctx.blocks)) throw new Error('Horário bloqueado');
+
+  const staffIds = await getStaffIdsForEventType(db, eventTypeId);
+  let assignedStaffId = null;
+
+  if (staffIds.length > 0) {
+    if (staffIds.length === 1) {
+      assignedStaffId = staffIds[0];
+    } else {
+      if (!staffId || !staffIds.includes(staffId)) {
+        throw new Error('Selecione o profissional');
+      }
+      assignedStaffId = staffId;
+    }
+    if (!isStaffFreeAt(startsAt, endsAt, ctx, eventType, assignedStaffId)) {
+      const err = new Error('Horário acabou de ser reservado');
+      err.status = 409;
+      throw err;
+    }
+  } else if (hasBookingConflict(startsAt, endsAt, ctx.existing, eventType.bufferBeforeMin, eventType.bufferAfterMin)) {
     const err = new Error('Horário acabou de ser reservado');
     err.status = 409;
     throw err;
@@ -218,20 +309,38 @@ async function validateAndCreateBooking(db, {
   if (name.length < 2) throw new Error('Nome inválido');
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Email inválido');
 
+  const wantsWhatsapp = !!consentWhatsapp;
+  const phone = normalizePhoneForWhatsApp(inviteePhone);
+  if (wantsWhatsapp && !phone) {
+    throw new Error('Informe um WhatsApp válido para receber lembretes');
+  }
+  if (wantsWhatsapp && phone.length < 12) {
+    throw new Error('WhatsApp inválido — use DDD + número');
+  }
+
+  const wantsEmail = consentEmail !== false;
+
   try {
     const [row] = await db.insert(bookings).values({
       tenantId,
       bookingPageId: eventType.bookingPageId,
       eventTypeId,
+      staffId: assignedStaffId,
       inviteeName: name,
       inviteeEmail: email,
+      inviteePhone: phone || null,
       inviteeTimezone: inviteeTimezone || APP_TIMEZONE,
+      consentEmail: wantsEmail,
+      consentWhatsapp: wantsWhatsapp,
+      whatsappConsentAt: wantsWhatsapp ? new Date() : null,
       startsAt,
       endsAt,
       status: 'confirmed',
       publicToken: generatePublicToken(),
       conversationId: conversationId || null,
     }).returning();
+
+    await scheduleReminderJobs(db, row, eventType.page);
     return row;
   } catch (err) {
     if (err.code === '23P01') {

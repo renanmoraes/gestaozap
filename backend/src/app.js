@@ -95,6 +95,7 @@ app.use('/api/bookings', tenantResolver, authGuard, require('./routes/bookings.r
 app.use('/api/tenant/profile', tenantResolver, authGuard, require('./routes/tenant-profile.routes'));
 app.use('/api/public/promotions', tenantResolver, require('./routes/public-promotions.routes'));
 app.use('/api/public/bookings', tenantResolver, require('./routes/public-bookings.routes'));
+app.use('/api/oauth/google-calendar', require('./routes/google-calendar-oauth.routes'));
 
 app.set('io', io);
 
@@ -107,6 +108,7 @@ const { scheduleContractExpiryCheck } = require('./cron/contractExpiry');
 const { scheduleOverageBilling } = require('./cron/overageBilling');
 const { schedulePromotionExpiryCheck } = require('./cron/promotionExpiry');
 const { scheduleBookingUpcomingAlerts } = require('./cron/bookingUpcoming');
+const { scheduleBookingReminderJobs } = require('./cron/bookingReminders');
 const { setIo } = require('./config/registry');
 
 if (require.main === module) {
@@ -119,6 +121,7 @@ if (require.main === module) {
     scheduleOverageBilling();
     schedulePromotionExpiryCheck();
     scheduleBookingUpcomingAlerts();
+    scheduleBookingReminderJobs();
     server.listen(PORT, () => console.log(`Backend running on :${PORT}`));
 
     // Auto-restaura sessões WhatsApp que estavam ativas (usa cache do LocalAuth).

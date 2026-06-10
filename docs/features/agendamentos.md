@@ -36,11 +36,18 @@ Pequenos negócios perdem tempo combinando horário no WhatsApp, esquecem compro
 ## Upgrade pago (futuro)
 
 - Remover branding / domínio customizado
-- Sync Google/Outlook
+- Sync calendário externo além do Google (ex.: Outlook)
 - Lembretes SMS/WhatsApp ao cliente
 - Round-robin / equipe
 - Pagamentos e no-show fee
 - Analytics avançado
+
+## Calendário da empresa (Google)
+
+- **Por enquanto, apenas Google Calendar** — conexão OAuth feita pelo tenant no painel Agendamentos → Configurações
+- Horários ocupados no Google são consultados via API FreeBusy e **bloqueiam slots** automaticamente
+- Outlook / Microsoft 365 ficam fora do escopo inicial (roadmap futuro)
+- Variáveis de servidor: `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `GOOGLE_CALENDAR_REDIRECT_URI` (callback fixo em `gestaozap.digital`)
 
 ## Regras de domínio
 
@@ -83,7 +90,7 @@ API: `GET /api/promotions/share-links`
 | M2 | Página pública linear |
 | M3 | E-mails convidado + lembretes |
 | M4 | Cancel/remarcar self-service |
-| M5 | Google Calendar |
+| M5 | Google Calendar (empresa) — Outlook futuro |
 | M6 | KPIs e limites free tier |
 | M7 | Operação WhatsApp completa (notificações, `/agendar`, `#`) |
 

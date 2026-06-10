@@ -1,8 +1,8 @@
 const router = require('express').Router();
-const { eq, and, asc } = require('drizzle-orm');
+const { eq, and, asc, inArray } = require('drizzle-orm');
 const { getDb } = require('../db');
 const { tenantHasFeature } = require('../services/feature.service');
-const { bookingPages, eventTypes, tenants } = require('../db/schema');
+const { bookingPages, eventTypes, tenants, bookingStaff, eventTypeStaff } = require('../db/schema');
 const {
   getAvailableSlots,
   validateAndCreateBooking,
@@ -27,6 +27,26 @@ router.get('/page', async (req, res) => {
       .where(and(eq(eventTypes.bookingPageId, page.id), eq(eventTypes.isActive, true)))
       .orderBy(asc(eventTypes.sortOrder));
 
+    const staffRows = await db.select({
+      id: bookingStaff.id,
+      name: bookingStaff.name,
+    })
+      .from(bookingStaff)
+      .where(and(eq(bookingStaff.tenantId, tenant.id), eq(bookingStaff.isActive, true)))
+      .orderBy(asc(bookingStaff.sortOrder));
+
+    const typeIds = types.map((t) => t.id);
+    let links = [];
+    if (typeIds.length) {
+      links = await db.select().from(eventTypeStaff)
+        .where(inArray(eventTypeStaff.eventTypeId, typeIds));
+    }
+    const staffByType = {};
+    for (const link of links) {
+      if (!staffByType[link.eventTypeId]) staffByType[link.eventTypeId] = [];
+      staffByType[link.eventTypeId].push(link.staffId);
+    }
+
     const [tenantRow] = await db.select({
       name: tenants.name,
       slug: tenants.slug,
@@ -49,7 +69,10 @@ router.get('/page', async (req, res) => {
         name: t.name,
         slug: t.slug,
         durationMin: t.durationMin,
+        priceBrl: t.priceBrl != null ? String(t.priceBrl) : null,
+        staffIds: staffByType[t.id] || [],
       })),
+      staff: staffRows,
       profile,
     });
   } catch (err) {
@@ -67,7 +90,7 @@ router.get('/availability', async (req, res) => {
     const { active } = await tenantHasFeature(db, tenant.id, 'agendamentos');
     if (!active) return res.status(403).json({ inactive: true });
 
-    const { eventTypeId, from, to, tz } = req.query;
+    const { eventTypeId, from, to, tz, staffId } = req.query;
     if (!eventTypeId) return res.status(400).json({ error: 'eventTypeId obrigatório' });
 
     const data = await getAvailableSlots(db, {
@@ -76,6 +99,7 @@ router.get('/availability', async (req, res) => {
       fromDate: from,
       toDate: to || from,
       timeZone: tz || undefined,
+      staffId: staffId || null,
     });
     res.json(data);
   } catch (err) {
@@ -94,7 +118,9 @@ router.post('/', async (req, res) => {
     if (!active) return res.status(403).json({ inactive: true });
 
     const {
-      eventTypeId, startsAt, inviteeName, inviteeEmail, inviteeTimezone, conversationId,
+      eventTypeId, startsAt, inviteeName, inviteeEmail, inviteePhone,
+      inviteeTimezone, conversationId, staffId,
+      consentEmail, consentWhatsapp,
     } = req.body || {};
 
     const booking = await validateAndCreateBooking(db, {
@@ -103,15 +129,28 @@ router.post('/', async (req, res) => {
       startsAtIso: startsAt,
       inviteeName,
       inviteeEmail,
+      inviteePhone,
       inviteeTimezone,
       conversationId,
+      staffId: staffId || null,
+      consentEmail: consentEmail !== false,
+      consentWhatsapp: !!consentWhatsapp,
     });
+
+    let staffName = null;
+    if (booking.staffId) {
+      const [s] = await db.select({ name: bookingStaff.name })
+        .from(bookingStaff).where(eq(bookingStaff.id, booking.staffId));
+      staffName = s?.name || null;
+    }
 
     res.status(201).json({
       id: booking.id,
       startsAt: booking.startsAt,
       endsAt: booking.endsAt,
       publicToken: booking.publicToken,
+      staffId: booking.staffId,
+      staffName,
     });
   } catch (err) {
     console.error('[public-bookings/post]', err);

@@ -778,6 +778,131 @@ async function runMigrations(pool) {
         ON promotions(tenant_id, share_code) WHERE share_code IS NOT NULL;
     `);
 
+    await client.query(`
+      ALTER TABLE event_types ADD COLUMN IF NOT EXISTS price_brl NUMERIC(10, 2);
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS booking_staff (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        name VARCHAR(120) NOT NULL,
+        email VARCHAR(255),
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_booking_staff_tenant
+        ON booking_staff(tenant_id) WHERE is_active = true;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS event_type_staff (
+        event_type_id UUID NOT NULL REFERENCES event_types(id) ON DELETE CASCADE,
+        staff_id UUID NOT NULL REFERENCES booking_staff(id) ON DELETE CASCADE,
+        PRIMARY KEY (event_type_id, staff_id)
+      );
+    `);
+    await client.query(`
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS staff_id UUID REFERENCES booking_staff(id) ON DELETE SET NULL;
+    `);
+    await client.query(`
+      ALTER TABLE manual_blocks ADD COLUMN IF NOT EXISTS staff_id UUID REFERENCES booking_staff(id) ON DELETE CASCADE;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bookings_no_overlap') THEN
+          ALTER TABLE bookings DROP CONSTRAINT bookings_no_overlap;
+        END IF;
+      END $$;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bookings_no_overlap') THEN
+          ALTER TABLE bookings ADD CONSTRAINT bookings_no_overlap
+            EXCLUDE USING gist (
+              tenant_id WITH =,
+              tstzrange(starts_at, ends_at, '[)') WITH &&
+            ) WHERE (status IN ('confirmed', 'pending') AND staff_id IS NULL);
+        END IF;
+      END $$;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bookings_no_overlap_staff') THEN
+          ALTER TABLE bookings ADD CONSTRAINT bookings_no_overlap_staff
+            EXCLUDE USING gist (
+              tenant_id WITH =,
+              staff_id WITH =,
+              tstzrange(starts_at, ends_at, '[)') WITH &&
+            ) WHERE (status IN ('confirmed', 'pending') AND staff_id IS NOT NULL);
+        END IF;
+      END $$;
+    `);
+
+    await client.query(`
+      ALTER TABLE booking_pages ADD COLUMN IF NOT EXISTS reminder_email_enabled BOOLEAN NOT NULL DEFAULT true;
+    `);
+    await client.query(`
+      ALTER TABLE booking_pages ADD COLUMN IF NOT EXISTS reminder_whatsapp_enabled BOOLEAN NOT NULL DEFAULT true;
+    `);
+    await client.query(`
+      ALTER TABLE booking_pages ADD COLUMN IF NOT EXISTS reminder_hours_before JSONB NOT NULL DEFAULT '[24, 1]'::jsonb;
+    `);
+    await client.query(`
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS invitee_phone VARCHAR(20);
+    `);
+    await client.query(`
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS consent_email BOOLEAN NOT NULL DEFAULT true;
+    `);
+    await client.query(`
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS consent_whatsapp BOOLEAN NOT NULL DEFAULT false;
+    `);
+    await client.query(`
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS whatsapp_consent_at TIMESTAMPTZ;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS booking_reminder_jobs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        channel VARCHAR(20) NOT NULL,
+        kind VARCHAR(30) NOT NULL DEFAULT 'reminder',
+        hours_before INTEGER,
+        due_at TIMESTAMPTZ NOT NULL,
+        sent_at TIMESTAMPTZ,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_booking_reminder_jobs_pending
+        ON booking_reminder_jobs(due_at) WHERE status = 'pending';
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_booking_reminder_job
+        ON booking_reminder_jobs(booking_id, channel, kind, COALESCE(hours_before, -1));
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tenant_google_calendar (
+        tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+        google_email VARCHAR(255),
+        calendar_id VARCHAR(255) NOT NULL DEFAULT 'primary',
+        access_token TEXT NOT NULL,
+        refresh_token TEXT NOT NULL,
+        token_expires_at TIMESTAMPTZ NOT NULL,
+        sync_enabled BOOLEAN NOT NULL DEFAULT true,
+        last_sync_at TIMESTAMPTZ,
+        last_sync_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
     await client.query('COMMIT');
     console.log('[db] migrations completed');
   } catch (err) {
