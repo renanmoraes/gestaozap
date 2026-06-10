@@ -54,7 +54,10 @@ router.get('/page', async (req, res) => {
       profileJson: tenants.profileJson,
     }).from(tenants).where(eq(tenants.id, tenant.id));
 
-    const profile = buildPublicProfile(tenantRow || tenant);
+    const profile = {
+      ...buildPublicProfile(tenantRow || tenant),
+      name: tenantRow?.name || tenant.name || null,
+    };
     const baseOrigin = `${req.protocol}://${req.get('host')}`;
 
     res.json({
@@ -70,6 +73,7 @@ router.get('/page', async (req, res) => {
         slug: t.slug,
         durationMin: t.durationMin,
         priceBrl: t.priceBrl != null ? String(t.priceBrl) : null,
+        maxAdvanceDays: t.maxAdvanceDays ?? 60,
         staffIds: staffByType[t.id] || [],
       })),
       staff: staffRows,

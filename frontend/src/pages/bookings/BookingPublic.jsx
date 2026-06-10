@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Check, ChevronLeft, Clock, Loader2,
+  Check, ChevronLeft, ChevronRight, Clock, ExternalLink, Loader2, MapPin,
 } from 'lucide-react';
 import { resolveCampaignImageUrl } from '../../utils/upload';
 import './agendar.css';
@@ -48,9 +48,62 @@ function startOfToday() {
   return d;
 }
 
-function buildDateRange(anchor, count = 21) {
-  const start = anchor < startOfToday() ? startOfToday() : anchor;
-  return Array.from({ length: count }, (_, i) => addDays(start, i));
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function endOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function mondayOffsetFirstWeek(date) {
+  return (date.getDay() + 6) % 7;
+}
+
+function buildMonthGrid(viewMonth) {
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const first = new Date(year, month, 1);
+  const daysInMonth = endOfMonth(first).getDate();
+  const offset = mondayOffsetFirstWeek(first);
+  const cells = [];
+  for (let i = 0; i < offset; i += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(new Date(year, month, day));
+  }
+  return cells;
+}
+
+function formatAddress(addr) {
+  if (!addr) return null;
+  const parts = [addr.line1, addr.neighborhood, addr.city, addr.state].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+function availabilityBadge(profile) {
+  if (!profile) return null;
+  if (profile.availabilityStatus === 'closed_today') {
+    return { text: 'Fechado hoje', tone: 'closed' };
+  }
+  if (profile.availabilityStatus === 'delivery_only') {
+    return { text: 'Delivery / remoto', tone: 'delivery' };
+  }
+  if (profile.isOpenNow === true) {
+    return { text: 'Aberto agora', tone: 'open' };
+  }
+  if (profile.isOpenNow === false && profile.availabilityStatus === 'open') {
+    return { text: 'Fechado no momento', tone: 'closed' };
+  }
+  if (profile.availabilityStatus === 'custom' && profile.availabilityNote) {
+    return { text: profile.availabilityNote, tone: 'custom' };
+  }
+  return null;
+}
+
+function normalizeExternalUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+  return raw.startsWith('http') ? raw : `https://${raw}`;
 }
 
 function formatSlotTime(iso, timeZone) {
@@ -137,14 +190,169 @@ async function createBooking(body) {
 
 function BookingHeader({ page, profile, tenantName }) {
   const logoSrc = profile?.logoUrl ? resolveCampaignImageUrl(profile.logoUrl) : null;
-  const title = page?.title || tenantName || 'Agendamento';
+  const title = page?.title || profile?.name || tenantName || 'Agendamento';
+  const address = formatAddress(profile?.address);
+  const badge = availabilityBadge(profile);
+  const instagram = normalizeExternalUrl(profile?.instagramUrl);
 
   return (
     <header className="agendar-header">
-      {logoSrc && <img src={logoSrc} alt="" className="agendar-logo" />}
+      {logoSrc && (
+        <div className="agendar-logo-wrap">
+          <img src={logoSrc} alt="" className="agendar-logo" />
+        </div>
+      )}
       <h1>{title}</h1>
-      {page?.description && <p>{page.description}</p>}
+      {profile?.tagline && <p className="agendar-tagline">{profile.tagline}</p>}
+      {page?.description && <p className="agendar-desc">{page.description}</p>}
+
+      {(badge || profile?.todayHoursLabel) && (
+        <div className="agendar-meta">
+          {badge && (
+            <span className={`agendar-badge agendar-badge--${badge.tone}`}>
+              {badge.text}
+            </span>
+          )}
+          {profile?.todayHoursLabel && (
+            <span className="agendar-hours">{profile.todayHoursLabel}</span>
+          )}
+        </div>
+      )}
+
+      {profile?.availabilityNote && profile.availabilityStatus !== 'custom' && (
+        <p className="agendar-note">{profile.availabilityNote}</p>
+      )}
+
+      {(address || instagram) && (
+        <div className="agendar-contact">
+          {address && (
+            <span className="agendar-address">
+              <MapPin className="w-3.5 h-3.5 shrink-0" />
+              {address}
+            </span>
+          )}
+          {instagram && (
+            <a
+              href={instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="agendar-social"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Instagram
+            </a>
+          )}
+        </div>
+      )}
     </header>
+  );
+}
+
+const WEEKDAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+
+function DateCalendar({
+  viewMonth,
+  onViewMonthChange,
+  selectedDate,
+  onSelectDate,
+  maxAdvanceDays,
+}) {
+  const today = startOfToday();
+  const maxDate = addDays(today, maxAdvanceDays || 60);
+  const minMonth = startOfMonth(today);
+  const maxMonth = startOfMonth(maxDate);
+  const currentMonth = startOfMonth(viewMonth);
+
+  const canPrev = currentMonth > minMonth;
+  const canNext = currentMonth < maxMonth;
+
+  const monthLabel = new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+  }).format(viewMonth);
+
+  const cells = buildMonthGrid(viewMonth);
+
+  const goPrev = () => {
+    if (!canPrev) return;
+    onViewMonthChange(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1));
+  };
+
+  const goNext = () => {
+    if (!canNext) return;
+    onViewMonthChange(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1));
+  };
+
+  const isSelectable = (d) => {
+    const t = d.getTime();
+    const min = today.getTime();
+    const max = maxDate.getTime();
+    return t >= min && t <= max;
+  };
+
+  return (
+    <div className="agendar-calendar">
+      <div className="agendar-calendar-nav">
+        <button
+          type="button"
+          className="agendar-calendar-arrow"
+          onClick={goPrev}
+          disabled={!canPrev}
+          aria-label="Mês anterior"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <span className="agendar-calendar-month">{monthLabel}</span>
+        <button
+          type="button"
+          className="agendar-calendar-arrow"
+          onClick={goNext}
+          disabled={!canNext}
+          aria-label="Próximo mês"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="agendar-calendar-weekdays" aria-hidden>
+        {WEEKDAY_LABELS.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </div>
+
+      <div className="agendar-calendar-grid" role="grid" aria-label="Calendário">
+        {cells.map((d, i) => {
+          if (!d) {
+            return <span key={`empty-${i}`} className="agendar-cal-cell is-empty" />;
+          }
+          const selectable = isSelectable(d);
+          const isSelected = selectedDate && toDateKey(selectedDate) === toDateKey(d);
+          const isToday = toDateKey(d) === toDateKey(today);
+          return (
+            <button
+              key={toDateKey(d)}
+              type="button"
+              role="gridcell"
+              disabled={!selectable}
+              aria-selected={isSelected}
+              aria-label={new Intl.DateTimeFormat('pt-BR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              }).format(d)}
+              className={`agendar-cal-cell${isSelected ? ' is-selected' : ''}${isToday ? ' is-today' : ''}${!selectable ? ' is-disabled' : ''}`}
+              onClick={() => onSelectDate(d)}
+            >
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="agendar-calendar-hint">
+        Agende com até {maxAdvanceDays || 60} dias de antecedência
+      </p>
+    </div>
   );
 }
 
@@ -171,6 +379,7 @@ export default function BookingPublic() {
   const [eventType, setEventType] = useState(null);
   const [staff, setStaff] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
+  const [viewMonth, setViewMonth] = useState(() => startOfMonth(startOfToday()));
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [slots, setSlots] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -206,18 +415,7 @@ export default function BookingPublic() {
 
   const stepIndex = confirmed ? steps.length - 1 : Math.max(0, steps.indexOf(step));
 
-  const dateRange = useMemo(() => {
-    let anchor = startOfToday();
-    if (query.date) {
-      const d = parseDateKey(query.date);
-      if (d) anchor = d;
-    } else if (query.month && /^\d{4}-\d{2}$/.test(query.month)) {
-      const [y, m] = query.month.split('-').map(Number);
-      const first = new Date(y, m - 1, 1);
-      if (first >= startOfToday()) anchor = first;
-    }
-    return buildDateRange(anchor, 21);
-  }, [query.date, query.month]);
+  const maxAdvanceDays = eventType?.maxAdvanceDays ?? 60;
 
   useEffect(() => {
     fetchPage()
@@ -244,8 +442,20 @@ export default function BookingPublic() {
           }
         }
 
-        const initialDate = parseDateKey(query.date) || dateRange[0];
-        setSelectedDate(initialDate >= startOfToday() ? initialDate : dateRange[0]);
+        const initialDate = (() => {
+          if (query.date) {
+            const d = parseDateKey(query.date);
+            if (d && d >= startOfToday()) return d;
+          }
+          if (query.month && /^\d{4}-\d{2}$/.test(query.month)) {
+            const [y, m] = query.month.split('-').map(Number);
+            const first = new Date(y, m - 1, 1);
+            if (first >= startOfToday()) return first;
+          }
+          return startOfToday();
+        })();
+        setSelectedDate(initialDate);
+        setViewMonth(startOfMonth(initialDate));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -286,6 +496,7 @@ export default function BookingPublic() {
     setEventType(t);
     setStaff(null);
     setSelectedSlot(null);
+    setViewMonth(startOfMonth(startOfToday()));
     const linked = allStaff.filter((s) => (t.staffIds || []).includes(s.id));
     if (linked.length === 1) {
       setStaff(linked[0]);
@@ -384,7 +595,7 @@ export default function BookingPublic() {
         <BookingHeader
           page={pageData.page}
           profile={pageData.profile}
-          tenantName={pageData.profile?.name}
+          tenantName={pageData?.profile?.name || pageData?.page?.title}
         />
 
         {!confirmed && <ProgressBar step={stepIndex} total={steps.length - 1} />}
@@ -463,30 +674,17 @@ export default function BookingPublic() {
               {staff ? ` · ${staff.name}` : ''}
             </p>
 
-            <div className="agendar-dates" role="listbox" aria-label="Datas disponíveis">
-              {dateRange.map((d) => {
-                const key = toDateKey(d);
-                const isSelected = selectedDate && toDateKey(selectedDate) === key;
-                const dow = new Intl.DateTimeFormat('pt-BR', { weekday: 'short' }).format(d);
-                const mon = new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(d);
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    className={`agendar-date-btn${isSelected ? ' is-selected' : ''}`}
-                    onClick={() => {
-                      setSelectedDate(d);
-                      setSelectedSlot(null);
-                    }}
-                  >
-                    <span className="dow">{dow.replace('.', '')}</span>
-                    <span className="dom">{d.getDate()}</span>
-                    <span className="mon">{mon.replace('.', '')}</span>
-                  </button>
-                );
-              })}
+            <div className="agendar-dates">
+              <DateCalendar
+                viewMonth={viewMonth}
+                onViewMonthChange={setViewMonth}
+                selectedDate={selectedDate}
+                onSelectDate={(d) => {
+                  setSelectedDate(d);
+                  setSelectedSlot(null);
+                }}
+                maxAdvanceDays={maxAdvanceDays}
+              />
             </div>
 
             <p className="agendar-slots-label">Horários disponíveis</p>

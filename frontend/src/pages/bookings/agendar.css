@@ -33,15 +33,20 @@
   padding: 1.75rem 0 1.25rem;
 }
 
+.agendar-logo-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.875rem;
+}
+
 .agendar-logo {
-  width: 4.5rem;
-  height: 4.5rem;
+  width: 5rem;
+  height: 5rem;
   object-fit: contain;
   border-radius: 1rem;
   background: var(--ag-surface);
   box-shadow: var(--ag-shadow);
-  padding: 0.35rem;
-  margin: 0 auto 0.875rem;
+  padding: 0.4rem;
 }
 
 .agendar-header h1 {
@@ -53,10 +58,99 @@
   line-height: 1.2;
 }
 
-.agendar-header p {
+.agendar-tagline {
+  margin: 0.4rem auto 0;
+  color: var(--ag-ink);
+  font-size: 0.9375rem;
+  max-width: 22rem;
+  line-height: 1.4;
+}
+
+.agendar-desc {
   margin: 0.35rem 0 0;
   color: var(--ag-muted);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
+}
+
+.agendar-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.agendar-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agendar-badge--open {
+  background: rgba(13, 150, 104, 0.15);
+  color: var(--ag-brand-dark);
+}
+
+.agendar-badge--closed {
+  background: rgba(180, 83, 9, 0.12);
+  color: var(--ag-warn);
+}
+
+.agendar-badge--delivery,
+.agendar-badge--custom {
+  background: rgba(12, 31, 23, 0.06);
+  color: var(--ag-muted);
+}
+
+.agendar-hours {
+  font-size: 0.8125rem;
+  color: var(--ag-muted);
+  font-weight: 500;
+}
+
+.agendar-note {
+  margin: 0.5rem auto 0;
+  font-size: 0.8125rem;
+  color: var(--ag-muted);
+  max-width: 22rem;
+}
+
+.agendar-contact {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--ag-line);
+}
+
+.agendar-address {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--ag-muted);
+  text-align: center;
+  max-width: 20rem;
+  line-height: 1.4;
+}
+
+.agendar-social {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ag-brand-dark);
+  text-decoration: none;
+}
+
+.agendar-social:hover {
+  text-decoration: underline;
 }
 
 .agendar-progress {
@@ -236,64 +330,115 @@
 }
 
 .agendar-dates {
+  margin: 0 0 0.5rem;
+}
+
+.agendar-calendar-nav {
   display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding: 0.25rem 0 0.75rem;
-  margin: 0 -0.25rem;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
 }
 
-.agendar-dates::-webkit-scrollbar {
-  display: none;
+.agendar-calendar-month {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--ag-ink);
 }
 
-.agendar-date-btn {
-  flex: 0 0 auto;
-  scroll-snap-align: start;
-  min-width: 4.25rem;
-  padding: 0.625rem 0.5rem;
-  border-radius: 0.875rem;
+.agendar-calendar-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
   border: 1.5px solid var(--ag-line);
   background: var(--ag-surface);
-  text-align: center;
+  color: var(--ag-ink);
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
 }
 
-.agendar-date-btn:hover,
-.agendar-date-btn.is-selected {
+.agendar-calendar-arrow:hover:not(:disabled) {
   border-color: var(--ag-brand);
   background: var(--ag-brand-soft);
 }
 
-.agendar-date-btn.is-disabled {
-  opacity: 0.35;
-  pointer-events: none;
+.agendar-calendar-arrow:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
-.agendar-date-btn .dow {
-  display: block;
-  font-size: 0.6875rem;
+.agendar-calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin-bottom: 0.375rem;
+}
+
+.agendar-calendar-weekdays span {
+  text-align: center;
+  font-size: 0.625rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--ag-muted);
+}
+
+.agendar-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.agendar-cal-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.625rem;
+  border: 1.5px solid transparent;
+  background: transparent;
+  font-size: 0.875rem;
   font-weight: 600;
+  font-family: inherit;
+  color: var(--ag-ink);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
 }
 
-.agendar-date-btn .dom {
-  display: block;
-  font-size: 1.125rem;
-  font-weight: 700;
-  margin-top: 0.125rem;
+.agendar-cal-cell.is-empty {
+  pointer-events: none;
 }
 
-.agendar-date-btn .mon {
-  display: block;
-  font-size: 0.6875rem;
+.agendar-cal-cell.is-today:not(.is-selected) {
+  border-color: var(--ag-line);
+}
+
+.agendar-cal-cell:hover:not(.is-disabled):not(.is-empty) {
+  border-color: var(--ag-brand);
+  background: var(--ag-brand-soft);
+}
+
+.agendar-cal-cell.is-selected {
+  border-color: var(--ag-brand);
+  background: var(--ag-brand);
+  color: #fff;
+}
+
+.agendar-cal-cell.is-disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+
+.agendar-calendar-hint {
+  margin: 0.625rem 0 0;
+  font-size: 0.75rem;
   color: var(--ag-muted);
+  text-align: center;
 }
 
 .agendar-slots-label {
