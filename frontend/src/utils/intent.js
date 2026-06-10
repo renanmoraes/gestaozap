@@ -20,6 +20,16 @@ export const INTENT_LABELS = {
   downgrade: 'Quer downgrade',
   lost_lead: 'Perdeu interesse',
   competitor: 'Citou concorrente',
+  // Genéricas para pequenos negócios
+  warranty_exchange: 'Troca / garantia',
+  urgent: 'Urgência',
+  reschedule: 'Quer remarcar',
+  order_status: 'Status do pedido',
+  delivery: 'Entrega / frete',
+  invoice: 'Pediu nota fiscal',
+  discount_request: 'Pediu desconto',
+  product_availability: 'Disponibilidade',
+  catalog_request: 'Pediu catálogo',
 };
 
 export function intentLabel(key) {
