@@ -50,7 +50,7 @@ function PendingApprovals({ items, onChange }) {
 
   return (
     <>
-      <div className="card p-5 border-amber-200 bg-amber-50/40">
+      <div className="card p-4 sm:p-5 border-amber-200 bg-amber-50/40">
         <div className="flex items-center gap-2 mb-4">
           <Clock className="w-4 h-4 text-amber-600" />
           <h3 className="text-sm font-semibold text-slate-900">Aprovações pendentes</h3>
@@ -58,12 +58,12 @@ function PendingApprovals({ items, onChange }) {
         </div>
         <div className="space-y-2">
           {items.map((t) => (
-            <div key={t.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white border border-slate-200">
+            <div key={t.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-white border border-slate-200">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-slate-900 truncate">
                   {t.name} <span className="text-xs text-slate-400 font-mono">/{t.slug}</span>
                 </div>
-                <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-3">
+                <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
                   <span className="uppercase">{t.document_type}: {t.document || '—'}</span>
                   <span className="font-mono">{formatPhone(t.registered_phone)}</span>
                   {t.affiliate_code && (
@@ -77,16 +77,16 @@ function PendingApprovals({ items, onChange }) {
                 <button
                   onClick={() => openApprove(t)}
                   disabled={busy === `${t.id}:approve`}
-                  className="btn-primary text-xs flex items-center gap-1 px-3 py-1.5"
+                  className="btn-primary flex-1 sm:flex-none text-xs justify-center gap-1 px-3 py-2"
                 >
-                  <Check className="w-3.5 h-3.5" />Aprovar
+                  <Check className="w-4 h-4" />Aprovar
                 </button>
                 <button
                   onClick={() => act(t.id, 'reject')}
                   disabled={busy === `${t.id}:reject`}
-                  className="btn-secondary text-xs flex items-center gap-1 px-3 py-1.5"
+                  className="btn-secondary flex-1 sm:flex-none text-xs justify-center gap-1 px-3 py-2"
                 >
-                  <X className="w-3.5 h-3.5" />Recusar
+                  <X className="w-4 h-4" />Recusar
                 </button>
               </div>
             </div>
@@ -214,6 +214,57 @@ function TenantRow({ tenant }) {
   );
 }
 
+function TenantCard({ tenant }) {
+  const navigate = useNavigate();
+  const waColor = tenant.wa_status === 'connected'
+    ? 'text-emerald-500' : tenant.wa_status === 'qr_ready' ? 'text-amber-500' : 'text-slate-300';
+  const isLifetime = tenant.contract_status === 'active' && !tenant.contract_expires_at;
+  const daysToExpiry = tenant.contract_expires_at
+    ? Math.ceil((new Date(tenant.contract_expires_at) - new Date()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  return (
+    <button
+      onClick={() => navigate(`/tenants/${tenant.id}`)}
+      className="w-full text-left card p-4 active:bg-slate-50 transition-colors"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-900 truncate">{tenant.name}</span>
+            {tenant.active
+              ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              : <XCircle className="w-4 h-4 text-red-400 shrink-0" />}
+          </div>
+          <div className="text-xs text-slate-400 font-mono mt-0.5 truncate">/{tenant.slug}</div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Wifi className={`w-4 h-4 ${waColor}`} title={tenant.wa_status} />
+          <ChevronRight className="w-4 h-4 text-slate-300" />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+        <span className="font-mono text-slate-600">{formatPhone(tenant.registered_phone)}</span>
+        {tenant.plan_name
+          ? <span className="badge-blue text-[11px]">{tenant.plan_name}</span>
+          : <span className="text-slate-400">sem plano</span>}
+        {isLifetime ? (
+          <span className="text-emerald-700 font-semibold">Vitalício</span>
+        ) : tenant.contract_expires_at ? (
+          <span className={
+            daysToExpiry != null && daysToExpiry <= 0 ? 'text-red-600 font-medium'
+            : daysToExpiry != null && daysToExpiry <= 7 ? 'text-amber-600 font-medium'
+            : 'text-slate-500'
+          }>
+            {daysToExpiry != null && daysToExpiry <= 0 ? 'vencido' : `vence ${formatDateBr(tenant.contract_expires_at)}`}
+          </span>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
 export default function AdminTenants() {
   const [tenants, setTenants] = useState([]);
   const [pending, setPending] = useState([]);
@@ -265,12 +316,12 @@ export default function AdminTenants() {
           <h2 className="text-base font-semibold text-slate-900">Clientes</h2>
           <p className="text-sm text-slate-500">{tenants.length} cadastrado(s)</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={load} className="btn-secondary text-sm flex items-center gap-1.5">
-            <RefreshCw className="w-3.5 h-3.5" />Atualizar
+        <div className="flex gap-2 shrink-0">
+          <button onClick={load} className="btn-secondary text-sm gap-1.5" aria-label="Atualizar">
+            <RefreshCw className="w-4 h-4" /><span className="hidden sm:inline">Atualizar</span>
           </button>
-          <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" />Novo cliente
+          <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm gap-1.5">
+            <Plus className="w-4 h-4" />Novo<span className="hidden sm:inline">&nbsp;cliente</span>
           </button>
         </div>
       </div>
@@ -291,7 +342,7 @@ export default function AdminTenants() {
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />{formError}
             </div>
           )}
-          <form onSubmit={create} className="grid grid-cols-2 gap-4">
+          <form onSubmit={create} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Nome da empresa</label>
               <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
@@ -334,7 +385,7 @@ export default function AdminTenants() {
                 )}
               </div>
             </div>
-            <div className="col-span-2 flex items-end gap-2">
+            <div className="sm:col-span-2 flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
               <button type="submit" disabled={creating} className="btn-primary flex-1 flex items-center justify-center gap-1.5">
                 {creating ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Plus className="w-4 h-4" />}
                 Criar e enviar acesso
@@ -345,31 +396,38 @@ export default function AdminTenants() {
         </div>
       )}
 
-      <div className="card overflow-hidden">
-        {loading ? (
-          <div className="py-12 text-center">
-            <span className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin inline-block" />
+      {loading ? (
+        <div className="card py-12 text-center">
+          <span className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin inline-block" />
+        </div>
+      ) : !tenants.length ? (
+        <div className="card py-12 text-center text-sm text-slate-400">Nenhum cliente cadastrado.</div>
+      ) : (
+        <>
+          {/* Mobile: cards */}
+          <div className="md:hidden space-y-3">
+            {tenants.map((t) => <TenantCard key={t.id} tenant={t} />)}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr>
-                  {['ID', 'Cliente', 'Número', 'Plano', 'Vencimento', 'WA', 'Status', ''].map((h) => (
-                    <th key={h} className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {tenants.map((t) => <TenantRow key={t.id} tenant={t} />)}
-                {!tenants.length && (
-                  <tr><td colSpan={8} className="text-center py-12 text-sm text-slate-400">Nenhum cliente cadastrado.</td></tr>
-                )}
-              </tbody>
-            </table>
+
+          {/* Desktop: tabela */}
+          <div className="hidden md:block card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    {['ID', 'Cliente', 'Número', 'Plano', 'Vencimento', 'WA', 'Status', ''].map((h) => (
+                      <th key={h} className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tenants.map((t) => <TenantRow key={t.id} tenant={t} />)}
+                </tbody>
+              </table>
+            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useSearchParams, useNavigate } from '
 import {
   Smartphone, Users, FileText, Send, Clock, BarChart2, Database,
   ChevronLeft, ChevronRight, Zap, CreditCard, LogOut,
-  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles, UserCircle, Calendar, Target,
+  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles, UserCircle, Calendar, Target, Menu, X,
 } from 'lucide-react';
 import MobileShell from './components/layout/MobileShell';
 import MobileWaBlock from './components/MobileWaBlock';
@@ -88,6 +88,7 @@ const ADMIN_NAV = [
 
 function AdminApp({ basePath = '' }) {
   const [token, setToken] = useState(() => localStorage.getItem('gestaozap_admin_token'));
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const logout = () => {
     localStorage.removeItem('gestaozap_admin_token');
@@ -97,32 +98,83 @@ function AdminApp({ basePath = '' }) {
   if (!token) return <AdminLogin onLogin={setToken} />;
 
   const prefix = basePath.replace(/\/$/, '');
+  const closeDrawer = () => setDrawerOpen(false);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <aside className="w-56 bg-sidebar flex flex-col shrink-0">
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800">
-          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-4 h-4 text-white" />
+    <div className="min-h-screen bg-slate-50 lg:flex">
+      {/* Top bar (mobile/tablet) */}
+      <header className="lg:hidden sticky top-0 z-30 flex items-center gap-2 px-3 h-14 bg-sidebar text-white shadow-md">
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className="p-2 -ml-1 rounded-lg hover:bg-slate-800 active:bg-slate-700 transition-colors"
+          aria-label="Abrir menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-4 h-4" />
           </div>
-          <div className="min-w-0">
-            <div className="text-white font-semibold text-sm leading-none">GestãoZap</div>
-            <div className="text-slate-400 text-xs mt-0.5">Admin</div>
+          <span className="font-semibold text-sm truncate">
+            GestãoZap <span className="text-slate-400 font-normal">Admin</span>
+          </span>
+        </div>
+        <button
+          onClick={logout}
+          className="ml-auto p-2 -mr-1 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
+          aria-label="Sair"
+        >
+          <LogOut className="w-5 h-5" />
+        </button>
+      </header>
+
+      {/* Backdrop do drawer */}
+      {drawerOpen && (
+        <div
+          onClick={closeDrawer}
+          className="lg:hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar (lg) / Drawer deslizante (mobile) */}
+      <aside
+        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 lg:w-56 bg-sidebar flex flex-col shrink-0
+          transform transition-transform duration-200 ease-out lg:transform-none
+          ${drawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} lg:translate-x-0`}
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-5 border-b border-slate-800">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-4 h-4 text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-white font-semibold text-sm leading-none">GestãoZap</div>
+              <div className="text-slate-400 text-xs mt-0.5">Admin</div>
+            </div>
           </div>
+          <button
+            onClick={closeDrawer}
+            className="lg:hidden p-1.5 -mr-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            aria-label="Fechar menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        <nav className="flex-1 px-2 py-4 space-y-0.5">
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {ADMIN_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={`${prefix}${to}`}
+              onClick={closeDrawer}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  isActive ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                `flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${
+                  isActive ? 'bg-brand-600 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800 active:bg-slate-700'
                 }`
               }
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              <Icon className="w-5 h-5 shrink-0" />
               <span className="text-sm font-medium">{label}</span>
             </NavLink>
           ))}
@@ -131,16 +183,16 @@ function AdminApp({ basePath = '' }) {
         <div className="px-2 py-4 border-t border-slate-800">
           <button
             onClick={logout}
-            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="flex items-center gap-3 px-3 py-3 w-full rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-5 h-5" />
             <span className="text-sm font-medium">Sair</span>
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">
+      <main className="flex-1 min-w-0 overflow-auto">
+        <div className="p-4 lg:p-6 max-w-6xl mx-auto">
           <Routes>
             <Route path={`${prefix}/tenants`} element={<AdminTenants />} />
             <Route path={`${prefix}/tenants/:id`} element={<AdminTenantDetail />} />

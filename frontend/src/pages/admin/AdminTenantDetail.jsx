@@ -39,13 +39,13 @@ function Tab({ active, onClick, icon: Icon, children, badge }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+      className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors shrink-0 whitespace-nowrap ${
         active
           ? 'text-brand-600 border-brand-600'
           : 'text-slate-500 border-transparent hover:text-slate-800'
       }`}
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="w-4 h-4 shrink-0" />
       {children}
       {badge != null && (
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-500'}`}>
@@ -198,35 +198,32 @@ export default function AdminTenantDetail() {
   return (
     <div className="space-y-5">
       {/* Topbar */}
-      <div className="flex items-center justify-between">
-        <button onClick={() => navigate('/tenants')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <button onClick={() => navigate('/tenants')} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 self-start">
           <ArrowLeft className="w-4 h-4" />
-          Voltar para a lista de clientes
+          Voltar<span className="hidden sm:inline">&nbsp;para a lista de clientes</span>
         </button>
-        <div className="flex items-center gap-2">
-          <button onClick={load} className="btn-secondary text-sm flex items-center gap-1.5">
-            <RefreshCw className="w-3.5 h-3.5" />
-            Atualizar
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={load} className="btn-secondary text-sm gap-1.5" aria-label="Atualizar">
+            <RefreshCw className="w-4 h-4" /><span className="hidden sm:inline">Atualizar</span>
           </button>
           {!editing ? (
             <>
-              <button onClick={makeAffiliate} className="btn-secondary text-sm flex items-center gap-1.5">
-                <Tag className="w-3.5 h-3.5" />
-                Tornar afiliado
+              <button onClick={makeAffiliate} className="btn-secondary text-sm gap-1.5">
+                <Tag className="w-4 h-4" />Afiliado
               </button>
-              <button onClick={() => setEdit(true)} className="btn-secondary text-sm flex items-center gap-1.5">
-                <Edit2 className="w-3.5 h-3.5" />
-                Editar dados
+              <button onClick={() => setEdit(true)} className="btn-secondary text-sm gap-1.5">
+                <Edit2 className="w-4 h-4" />Editar
               </button>
               <button
                 onClick={toggleActive}
-                className={`text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg ${
+                className={`text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium ${
                   t.active
                     ? 'bg-red-50 border border-red-200 text-red-700 hover:bg-red-100'
                     : 'bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100'
                 }`}
               >
-                {t.active ? <ShieldOff className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                {t.active ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
                 {t.active ? 'Bloquear' : 'Reativar'}
               </button>
             </>
@@ -235,8 +232,8 @@ export default function AdminTenantDetail() {
               <button onClick={() => { setEdit(false); load(); }} className="btn-secondary text-sm">
                 Cancelar
               </button>
-              <button onClick={save} disabled={saving} className="btn-primary text-sm flex items-center gap-1.5">
-                {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <button onClick={save} disabled={saving} className="btn-primary text-sm gap-1.5">
+                {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Salvar
               </button>
             </>
@@ -245,7 +242,7 @@ export default function AdminTenantDetail() {
       </div>
 
       {/* Header card */}
-      <div className="card p-6">
+      <div className="card p-4 sm:p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-white text-lg font-bold flex items-center justify-center">
@@ -368,8 +365,8 @@ export default function AdminTenantDetail() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-slate-200 flex gap-2">
+      {/* Tabs — roláveis horizontalmente no mobile */}
+      <div className="border-b border-slate-200 flex gap-1 sm:gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 lg:mx-0 lg:px-0">
         <Tab active={tab === 'overview'} onClick={() => setTab('overview')} icon={Building2}>Visão geral</Tab>
         <Tab active={tab === 'whatsapp'} onClick={() => setTab('whatsapp')} icon={Smartphone}>WhatsApp</Tab>
         <Tab active={tab === 'contracts'} onClick={() => setTab('contracts')} icon={Calendar} badge={contracts.length}>Contratos</Tab>
@@ -600,7 +597,7 @@ export default function AdminTenantDetail() {
 
       {/* Contracts tab */}
       {tab === 'contracts' && (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900">Histórico de contratos</h3>
             {t.contract_id && t.contract_expires_at && (
@@ -650,7 +647,7 @@ export default function AdminTenantDetail() {
 
       {/* Payments tab */}
       {tab === 'payments' && (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <div className="px-5 py-3 border-b border-slate-100">
             <h3 className="text-sm font-semibold text-slate-900">Pagamentos recentes</h3>
           </div>
@@ -817,87 +814,101 @@ function FeaturesPanel({ tenantId, contractExpiresAt }) {
         </div>
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-            <tr>
-              <th className="px-4 py-2.5 text-left">Feature</th>
-              <th className="px-4 py-2.5 text-left">Preço</th>
-              <th className="px-4 py-2.5 text-left">Status no tenant</th>
-              <th className="px-4 py-2.5 text-right">Ação</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((f) => {
-              const sub = f.subscription;
-              const active = f.tenantActive;
-              const complimentary = sub?.isComplimentary;
-              return (
-                <tr key={f.id}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900">{f.name}</div>
-                    <div className="text-xs text-slate-500 font-mono">{f.slug}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {f.isFree ? 'Grátis' : `${formatMoney(f.priceBrl)}/mês`}
-                  </td>
-                  <td className="px-4 py-3">
-                    {active ? (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                          Ativo{sub?.expiresAt ? ` até ${formatDateBr(sub.expiresAt)}` : ''}
-                        </span>
-                        {complimentary && (
-                          <span className="text-xs font-medium text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">
-                            Cortesia
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-500">Inativo</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex flex-wrap justify-end gap-1.5">
-                      {active ? (
-                        <>
-                          {!f.isFree && (
-                            <button
-                              type="button"
-                              disabled={toggling === f.slug}
-                              onClick={() => openEnableModal(f, true)}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100"
-                            >
-                              Renovar
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            disabled={toggling === f.slug}
-                            onClick={() => disable(f.slug)}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200"
-                          >
-                            Revogar
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={toggling === f.slug}
-                          onClick={() => (f.isFree ? enableFree(f.slug) : openEnableModal(f))}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700"
-                        >
-                          Liberar
-                        </button>
-                      )}
+      {(() => {
+        const ActionButtons = ({ f }) => {
+          const active = f.tenantActive;
+          return active ? (
+            <>
+              {!f.isFree && (
+                <button type="button" disabled={toggling === f.slug} onClick={() => openEnableModal(f, true)}
+                  className="text-xs px-3 py-2 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100 font-medium">
+                  Renovar
+                </button>
+              )}
+              <button type="button" disabled={toggling === f.slug} onClick={() => disable(f.slug)}
+                className="text-xs px-3 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium">
+                Revogar
+              </button>
+            </>
+          ) : (
+            <button type="button" disabled={toggling === f.slug}
+              onClick={() => (f.isFree ? enableFree(f.slug) : openEnableModal(f))}
+              className="text-xs px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 font-medium">
+              Liberar
+            </button>
+          );
+        };
+        const StatusBadge = ({ f }) => {
+          const sub = f.subscription;
+          if (!f.tenantActive) return <span className="text-xs text-slate-500">Inativo</span>;
+          return (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                Ativo{sub?.expiresAt ? ` até ${formatDateBr(sub.expiresAt)}` : ''}
+              </span>
+              {sub?.isComplimentary && (
+                <span className="text-xs font-medium text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">Cortesia</span>
+              )}
+            </div>
+          );
+        };
+
+        return (
+          <>
+            {/* Mobile: cards */}
+            <div className="md:hidden space-y-3">
+              {rows.map((f) => (
+                <div key={f.id} className="card p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900">{f.name}</div>
+                      <div className="text-xs text-slate-500 font-mono">{f.slug}</div>
                     </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    <span className="text-xs text-slate-600 shrink-0 mt-0.5">
+                      {f.isFree ? 'Grátis' : `${formatMoney(f.priceBrl)}/mês`}
+                    </span>
+                  </div>
+                  <div className="mt-2"><StatusBadge f={f} /></div>
+                  <div className="mt-3 flex gap-2">
+                    <ActionButtons f={f} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: tabela */}
+            <div className="hidden md:block card overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left">Feature</th>
+                      <th className="px-4 py-2.5 text-left">Preço</th>
+                      <th className="px-4 py-2.5 text-left">Status no tenant</th>
+                      <th className="px-4 py-2.5 text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {rows.map((f) => (
+                      <tr key={f.id}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-900">{f.name}</div>
+                          <div className="text-xs text-slate-500 font-mono">{f.slug}</div>
+                        </td>
+                        <td className="px-4 py-3">{f.isFree ? 'Grátis' : `${formatMoney(f.priceBrl)}/mês`}</td>
+                        <td className="px-4 py-3"><StatusBadge f={f} /></td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex flex-wrap justify-end gap-1.5"><ActionButtons f={f} /></div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {enableModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40">
@@ -1017,7 +1028,7 @@ function DlqPanel({ tenantId }) {
       </div>
 
       {/* Lista */}
-      <div className="card overflow-hidden">
+      <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
             <tr>

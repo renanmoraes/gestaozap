@@ -55,3 +55,14 @@
     @apply w-1.5 h-1.5 rounded-full;
   }
 }
+
+@layer utilities {
+  /* Scroll horizontal sem barra visível (abas/filtros no mobile) */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

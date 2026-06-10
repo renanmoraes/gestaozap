@@ -135,7 +135,7 @@ export default function AdminStorage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Armazenamento de mídia</h2>
           <p className="text-sm text-slate-500">
@@ -179,7 +179,7 @@ export default function AdminStorage() {
       {/* Toggle provider */}
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-4">Onde guardar os arquivos</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { id: 'local', label: 'Disco local', desc: 'No próprio servidor (padrão)', icon: HardDrive },
             { id: 'r2',    label: 'Cloudflare R2', desc: 'Storage na nuvem, escalável', icon: Cloud },
