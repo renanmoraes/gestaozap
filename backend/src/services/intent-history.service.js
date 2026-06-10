@@ -82,7 +82,7 @@ async function runReprocess(db, io, tenantId, job) {
             messageId: m.id,
             body: m.body,
           });
-          if (r) detected += 1;
+          if (r?.intents?.length) detected += r.intents.length;
         } catch (_) { /* ignora falha pontual */ }
       }
       processed += 1;

@@ -76,6 +76,15 @@ describe('detectIntents', () => {
     const inactive = rules.map((r) => ({ ...r, active: false }));
     expect(detectIntents('quanto custa o plano', inactive)).toEqual([]);
   });
+
+  it('multi=true captura várias intenções numa só mensagem', () => {
+    const hits = detectIntents('qual o preço? vocês entregam? é urgente', rules, { multi: true });
+    const keys = hits.map((h) => h.intentKey);
+    expect(keys).toEqual(expect.arrayContaining(['pricing', 'delivery', 'urgent']));
+    expect(keys.length).toBeGreaterThanOrEqual(3);
+    // ordenado por prioridade desc (urgent=72 antes de delivery=52 antes de pricing=40)
+    expect(keys.indexOf('urgent')).toBeLessThan(keys.indexOf('pricing'));
+  });
 });
 
 describe('temperatura e peso temporal (spec §11/§12)', () => {

@@ -74,9 +74,10 @@ async function processInboundMessage(db, io, { tenantId, conversationId, message
     if (!rules.length) return null;
   }
 
-  const hits = detectIntents(text, rules); // melhor intenção
+  // Detecta TODAS as intenções acima do score — uma mensagem pode conter várias
+  // (ex.: "qual o preço e vocês entregam? é urgente").
+  const hits = detectIntents(text, rules, { multi: true });
   if (!hits.length) return null;
-  const hit = hits[0];
 
   // Resolve contactId da conversa (necessário p/ tags agregadas).
   let contactId = null;
@@ -88,64 +89,74 @@ async function processInboundMessage(db, io, { tenantId, conversationId, message
     contactId = conv?.contactId || null;
   } catch (_) {}
 
-  // 1) Evento de detecção (idempotente por message_id+intent_key)
-  await db.insert(conversationIntents).values({
-    tenantId,
-    conversationId,
-    contactId,
-    messageId: messageId || null,
-    intentKey: hit.intentKey,
-    ruleId: hit.rule.id || null,
-    confidence: String(hit.confidence),
-    matchedKeywords: hit.matchedKeywords,
-    matchedRegex: hit.matchedRegex,
-    source: 'rule_based',
-  }).onConflictDoNothing();
+  const detected = [];
+  const appliedTags = [];
 
+  for (const hit of hits) {
+    // 1) Evento de detecção (idempotente por message_id+intent_key)
+    await db.insert(conversationIntents).values({
+      tenantId,
+      conversationId,
+      contactId,
+      messageId: messageId || null,
+      intentKey: hit.intentKey,
+      ruleId: hit.rule.id || null,
+      confidence: String(hit.confidence),
+      matchedKeywords: hit.matchedKeywords,
+      matchedRegex: hit.matchedRegex,
+      source: 'rule_based',
+    }).onConflictDoNothing();
+
+    // 2) Tags agregadas por contato (upsert com contador)
+    const tags = Array.isArray(hit.rule.tags) ? hit.rule.tags : [];
+    if (contactId && tags.length) {
+      for (const tag of tags) {
+        await db.insert(contactIntentTags).values({
+          tenantId,
+          contactId,
+          intentKey: hit.intentKey,
+          tag,
+        }).onConflictDoUpdate({
+          target: [
+            contactIntentTags.tenantId,
+            contactIntentTags.contactId,
+            contactIntentTags.intentKey,
+            contactIntentTags.tag,
+          ],
+          set: {
+            lastDetectedAt: new Date(),
+            occurrenceCount: sql`${contactIntentTags.occurrenceCount} + 1`,
+          },
+        });
+        if (!appliedTags.includes(tag)) appliedTags.push(tag);
+      }
+    }
+
+    detected.push({ intentKey: hit.intentKey, confidence: hit.confidence, tags });
+  }
+
+  // Emite eventos consolidados (uma mensagem → várias intenções).
   if (io) {
     io.to(tenantId).emit('intent:detected', {
       tenantId,
       conversationId,
       contactId,
-      intentKey: hit.intentKey,
-      confidence: hit.confidence,
+      intents: detected.map((d) => ({ intentKey: d.intentKey, confidence: d.confidence })),
+      // compat: intenção principal (maior prioridade) no topo
+      intentKey: detected[0].intentKey,
+      confidence: detected[0].confidence,
     });
-  }
-
-  // 2) Tags agregadas por contato (upsert com contador)
-  const tags = Array.isArray(hit.rule.tags) ? hit.rule.tags : [];
-  if (contactId && tags.length) {
-    for (const tag of tags) {
-      await db.insert(contactIntentTags).values({
-        tenantId,
-        contactId,
-        intentKey: hit.intentKey,
-        tag,
-      }).onConflictDoUpdate({
-        target: [
-          contactIntentTags.tenantId,
-          contactIntentTags.contactId,
-          contactIntentTags.intentKey,
-          contactIntentTags.tag,
-        ],
-        set: {
-          lastDetectedAt: new Date(),
-          occurrenceCount: sql`${contactIntentTags.occurrenceCount} + 1`,
-        },
-      });
-    }
-    if (io) {
+    if (contactId && appliedTags.length) {
       io.to(tenantId).emit('intent:tag_applied', {
         tenantId,
         conversationId,
         contactId,
-        intentKey: hit.intentKey,
-        tags,
+        tags: appliedTags,
       });
     }
   }
 
-  return { intentKey: hit.intentKey, confidence: hit.confidence, contactId, tags };
+  return { contactId, intents: detected, tags: appliedTags };
 }
 
 // ─────────────────────── CRUD de regras (painel do tenant) ───────────────────────
