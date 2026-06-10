@@ -342,6 +342,54 @@ const featureRequests = pgTable('feature_requests', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ─── Intenções Inteligentes (captura de intenção sem IA) ───
+// Regras de intenção. Templates globais têm tenant_id NULL e system_default=true;
+// cópias do tenant (editáveis) têm tenant_id preenchido.
+const intentRules = pgTable('intent_rules', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
+  intentKey: text('intent_key').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  keywords: text('keywords').array().notNull().default([]),
+  regexPatterns: text('regex_patterns').array().notNull().default([]),
+  tags: text('tags').array().notNull().default([]),
+  priority: integer('priority').notNull().default(0),
+  minScore: numeric('min_score', { precision: 5, scale: 2 }).notNull().default('0.60'),
+  systemDefault: boolean('system_default').notNull().default(false),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Eventos de detecção (append-only) — uma linha por intenção detectada numa mensagem.
+const conversationIntents = pgTable('conversation_intents', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id').notNull(),
+  contactId: uuid('contact_id'),
+  messageId: uuid('message_id'),
+  intentKey: text('intent_key').notNull(),
+  ruleId: uuid('rule_id'),
+  confidence: numeric('confidence', { precision: 5, scale: 2 }).notNull(),
+  matchedKeywords: text('matched_keywords').array().notNull().default([]),
+  matchedRegex: text('matched_regex').array().notNull().default([]),
+  source: text('source').notNull().default('rule_based'),
+  detectedAt: timestamp('detected_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Tags de intenção agregadas por contato (diferenciadas das tags manuais em contacts.tags).
+const contactIntentTags = pgTable('contact_intent_tags', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  contactId: uuid('contact_id').notNull(),
+  intentKey: text('intent_key').notNull(),
+  tag: text('tag').notNull(),
+  firstDetectedAt: timestamp('first_detected_at', { withTimezone: true }).defaultNow().notNull(),
+  lastDetectedAt: timestamp('last_detected_at', { withTimezone: true }).defaultNow().notNull(),
+  occurrenceCount: integer('occurrence_count').notNull().default(1),
+});
+
 const promotionLayouts = pgTable('promotion_layouts', {
   id: uuid('id').defaultRandom().primaryKey(),
   slug: varchar('slug', { length: 80 }).notNull().unique(),
@@ -568,6 +616,9 @@ module.exports = {
   features,
   tenantFeatures,
   featureRequests,
+  intentRules,
+  conversationIntents,
+  contactIntentTags,
   promotionLayouts,
   promotions,
   promotionSlots,

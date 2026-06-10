@@ -903,6 +903,66 @@ async function runMigrations(pool) {
       );
     `);
 
+    // ─── Intenções Inteligentes (captura de intenção sem IA) ───
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS intent_rules (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+        intent_key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        keywords TEXT[] NOT NULL DEFAULT '{}',
+        regex_patterns TEXT[] NOT NULL DEFAULT '{}',
+        tags TEXT[] NOT NULL DEFAULT '{}',
+        priority INTEGER NOT NULL DEFAULT 0,
+        min_score NUMERIC(5,2) NOT NULL DEFAULT 0.60,
+        system_default BOOLEAN NOT NULL DEFAULT false,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS conversation_intents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        conversation_id UUID NOT NULL,
+        contact_id UUID,
+        message_id UUID,
+        intent_key TEXT NOT NULL,
+        rule_id UUID,
+        confidence NUMERIC(5,2) NOT NULL,
+        matched_keywords TEXT[] NOT NULL DEFAULT '{}',
+        matched_regex TEXT[] NOT NULL DEFAULT '{}',
+        source TEXT NOT NULL DEFAULT 'rule_based',
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS contact_intent_tags (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        contact_id UUID NOT NULL,
+        intent_key TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        first_detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        occurrence_count INTEGER NOT NULL DEFAULT 1
+      );
+    `);
+    // Índices (spec §17)
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_intent_rules_tenant_active ON intent_rules (tenant_id, active);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_conversation_intents_tenant_contact ON conversation_intents (tenant_id, contact_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_conversation_intents_tenant_intent_date ON conversation_intents (tenant_id, intent_key, detected_at DESC);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_contact_intent_tags_tenant_contact ON contact_intent_tags (tenant_id, contact_id);`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_contact_intent_tag ON contact_intent_tags (tenant_id, contact_id, intent_key, tag);`);
+    // Idempotência da detecção: 1 evento por (mensagem, intenção)
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_conversation_intent_msg ON conversation_intents (message_id, intent_key) WHERE message_id IS NOT NULL;`);
+    // Templates globais únicos por intent_key (tenant_id NULL)
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_intent_rule_global ON intent_rules (intent_key) WHERE tenant_id IS NULL AND system_default;`);
+    // Regras do tenant: 1 por intent_key por tenant
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_intent_rule_tenant_key ON intent_rules (tenant_id, intent_key) WHERE tenant_id IS NOT NULL;`);
+
     await client.query('COMMIT');
     console.log('[db] migrations completed');
   } catch (err) {
@@ -948,6 +1008,8 @@ async function main() {
     await seedPlatformConfig(pool);
     await seedFeatures(pool);
     await seedPromotionLayouts(pool);
+    const { seedIntentDefaults } = require('./seeds/intent-defaults');
+    await seedIntentDefaults(pool);
     await seedAdminCompanyAndUser(pool);
     const { backfillAllTenants } = require('../services/booking-bootstrap.service');
     await backfillAllTenants(pool);

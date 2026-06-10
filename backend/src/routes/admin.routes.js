@@ -1048,6 +1048,14 @@ router.post('/tenants/:id/features/:slug', async (req, res) => {
       expiresAt,
       isComplimentary: !!isComplimentary,
     });
+    // Ao ativar "Intenções Inteligentes", provisiona as regras padrão do tenant.
+    if (req.params.slug === 'intencoes') {
+      try {
+        await require('../services/intent.service').ensureTenantRules(req.params.id);
+      } catch (e) {
+        console.warn('[intent] ensureTenantRules falhou:', e.message);
+      }
+    }
     res.json({ ok: true, subscription: row });
   } catch (err) {
     console.error('admin tenant feature toggle:', err);

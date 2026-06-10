@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download, Loader2 } from 'lucide-react';
+import { Users, Plus, Search, Tag, Pencil, Trash2, UserX, UserCheck, Upload, Download, Loader2, Target } from 'lucide-react';
 import api from '../api';
 import { dialog } from '../utils/dialog';
 import { MSG } from '../utils/messages';
@@ -290,6 +290,12 @@ export default function Contacts() {
                                 {c.optedOut && <span className="badge-red">opt-out</span>}
                                 {(c.tags || []).map((t) => (
                                   <span key={t} className="badge-gray">{t}</span>
+                                ))}
+                                {[...new Set((c.intentTags || []).map((it) => it.tag))].map((t) => (
+                                  <span key={`i-${t}`} title="Tag de intenção (automática)"
+                                    className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                                    <Target className="w-3 h-3" />{t}
+                                  </span>
                                 ))}
                               </div>
                               <div className="text-xs text-slate-400 mt-0.5 font-mono">{formatPhone(c.phone)}</div>

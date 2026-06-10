@@ -240,6 +240,14 @@ async function recordIncomingMessage(tenantId, io, payload) {
     io.to(tenantId).emit('chat:upserted', { conversationId });
   }
 
+  // ─── Captura de intenção (feature paga "intencoes") — fire-and-forget ───
+  // Gate de feature/contrato é feito dentro do serviço; só processa texto inbound.
+  if (body) {
+    require('./intent.service')
+      .processInboundMessage(db, io, { tenantId, conversationId, messageId: message.id, body })
+      .catch((e) => console.warn('[intent] inbound error:', e.message));
+  }
+
   return message;
 }
 

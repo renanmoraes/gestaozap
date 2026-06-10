@@ -8,12 +8,41 @@ const whatsapp = require('../services/whatsapp.service');
 const { requireWAConnected } = require('../middleware/featureGate');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { fetchEligibleContactsForSend } = require('../utils/contacts-query.util');
+const { tenantHasFeature } = require('../services/feature.service');
 const { getConfigInt } = require('../config/platform');
 const { countActiveDispatches } = require('../services/dispatch.service');
 
 function getTenantId(req) {
   return (req.tenant && req.tenant.id) || DEFAULT_TENANT_ID;
 }
+
+// Prévia da audiência (conta destinatários elegíveis, inclusive filtro de intenção).
+router.post('/preview', async (req, res) => {
+  try {
+    const db = getDb();
+    const tenantId = getTenantId(req);
+    const { selectAll = false, filter = {}, excludeContactIds = [], category = 'marketing', intentFilter = null } = req.body || {};
+
+    let effectiveIntentFilter = null;
+    if (intentFilter && typeof intentFilter === 'object') {
+      const { active } = await tenantHasFeature(db, tenantId, 'intencoes');
+      if (active) effectiveIntentFilter = intentFilter;
+    }
+
+    const rows = await fetchEligibleContactsForSend(db, tenantId, {
+      selectAll: Boolean(selectAll),
+      filter,
+      excludeContactIds,
+      category,
+      intentFilter: effectiveIntentFilter,
+      referenceDate: new Date(),
+    });
+    res.json({ eligible: rows.length, intentApplied: !!effectiveIntentFilter });
+  } catch (err) {
+    console.error('send preview:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.post('/test-number', requireWAConnected, async (req, res) => {
   try {
@@ -60,7 +89,15 @@ router.post('/', requireWAConnected, async (req, res) => {
       preventDuplicate = true,
       variables = {},
       category = 'marketing',
+      intentFilter = null,
     } = req.body;
+
+    // Filtro de intenção só vale com a feature paga ativa (gate no backend, spec §18).
+    let effectiveIntentFilter = null;
+    if (intentFilter && typeof intentFilter === 'object') {
+      const { active } = await tenantHasFeature(db, tenantId, 'intencoes');
+      if (active) effectiveIntentFilter = intentFilter;
+    }
 
     const useSelectAll = Boolean(selectAll);
     const hasExplicitIds = Array.isArray(contactIds) && contactIds.length > 0;
@@ -97,6 +134,8 @@ router.post('/', requireWAConnected, async (req, res) => {
       filter,
       excludeContactIds,
       category,
+      intentFilter: effectiveIntentFilter,
+      referenceDate: new Date(),
     });
 
     const requestedCount = useSelectAll

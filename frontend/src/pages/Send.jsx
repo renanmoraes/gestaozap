@@ -4,6 +4,8 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket';
+import { useTenant } from '../context/TenantContext';
+import IntentSegmentation from '../components/send/IntentSegmentation';
 import api from '../api';
 import { DEFAULT_HOUR_START, DEFAULT_HOUR_END, getCurrentHourBr, isOutsideRecommendedHours, confirmSendOutsideHours } from '../utils/hours';
 import { formatDateTimeBr } from '../utils/timezone';
@@ -32,6 +34,10 @@ const EMPTY_SELECTION = {
 };
 
 export default function SendPage() {
+  const { hasFeature } = useTenant();
+  const hasIntents = hasFeature('intencoes');
+  const [intentFilter, setIntentFilter] = useState(null);
+  const [intentCount, setIntentCount] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [allTags, setAllTags] = useState([]);
@@ -107,6 +113,24 @@ export default function SendPage() {
   useEffect(() => {
     if (page > 1) loadContacts(page, true);
   }, [page, loadContacts]);
+
+  // Prévia da audiência quando há filtro de intenção (contagem precisa via backend).
+  useEffect(() => {
+    if (!hasIntents || !intentFilter) { setIntentCount(null); return; }
+    let cancelled = false;
+    const body = {
+      selectAll: true,
+      filter: {
+        ...(selection.tagFilter ? { tag: selection.tagFilter } : {}),
+        ...(searchDebounced ? { q: searchDebounced } : {}),
+      },
+      intentFilter,
+    };
+    api.post('/api/send/preview', body)
+      .then(({ data }) => { if (!cancelled) setIntentCount(data?.eligible ?? null); })
+      .catch(() => { if (!cancelled) setIntentCount(null); });
+    return () => { cancelled = true; };
+  }, [hasIntents, intentFilter, selection.tagFilter, searchDebounced]);
 
   useEffect(() => {
     const el = loadMoreRef.current;
@@ -241,6 +265,10 @@ export default function SendPage() {
         }
       } else {
         payload.contactIds = [...selection.contactIds];
+      }
+
+      if (hasIntents && intentFilter) {
+        payload.intentFilter = intentFilter;
       }
 
       const r = await api.post('/api/send', payload);
@@ -394,6 +422,17 @@ export default function SendPage() {
                       ))}
                     </div>
                   </div>
+                )}
+
+                {hasIntents && (
+                  <>
+                    <IntentSegmentation onChange={setIntentFilter} />
+                    {intentFilter && intentCount != null && (
+                      <p className="text-xs text-brand-700 -mt-1">
+                        <strong>{intentCount.toLocaleString('pt-BR')}</strong> contato(s) atendem à segmentação por intenção.
+                      </p>
+                    )}
+                  </>
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-white py-2 -mx-1 px-1">

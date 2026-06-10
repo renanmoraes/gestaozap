@@ -22,6 +22,23 @@ function getQueueForTenant(tenantId) {
   return queues.get(tenantId);
 }
 
+/** Map de tenantId → Bull instance (reprocessamento de intenções) */
+const intentHistoryQueues = new Map();
+
+function getIntentHistoryQueue(tenantId) {
+  if (!intentHistoryQueues.has(tenantId)) {
+    intentHistoryQueues.set(tenantId, new Bull(`intent-history-reprocess:${tenantId}`, {
+      redis: REDIS_CONFIG,
+      settings: {
+        lockDuration: 600000,
+        stalledInterval: 60000,
+        maxStalledCount: 5,
+      },
+    }));
+  }
+  return intentHistoryQueues.get(tenantId);
+}
+
 /* ─── Chaves Redis de controle (isoladas por tenant) ─────── */
 
 const CANCEL_KEY = (tenantId, jobId) => `gestaozap:${tenantId}:send-cancel:${jobId}`;
@@ -83,6 +100,7 @@ async function isSendCancelled(tenantId, jobId, dispatchId) {
 
 module.exports = {
   getQueueForTenant,
+  getIntentHistoryQueue,
   requestCancelFlag,
   isCancelRequested,
   clearCancelFlag,

@@ -1,10 +1,11 @@
 const router = require('express').Router();
 const { eq, and, inArray, sql } = require('drizzle-orm');
 const { getDb, getPool, DEFAULT_TENANT_ID } = require('../db');
-const { contacts } = require('../db/schema');
+const { contacts, contactIntentTags } = require('../db/schema');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { formatStampBr } = require('../utils/timezone.util');
 const { buildListConditions } = require('../utils/contacts-query.util');
+const { tenantHasFeature } = require('../services/feature.service');
 const { requireWAConnected } = require('../middleware/featureGate');
 const whatsapp = require('../services/whatsapp.service');
 
@@ -58,8 +59,31 @@ router.get('/', async (req, res) => {
 
     const total = countRow?.count ?? 0;
 
+    // Enriquecimento opcional: tags de intenção (feature paga "intencoes")
+    let items = rows.map(normalizeDoc);
+    try {
+      const { active } = await tenantHasFeature(db, tenantId, 'intencoes');
+      if (active && items.length) {
+        const ids = items.map((c) => c.id).filter(Boolean);
+        if (ids.length) {
+          const intentRows = await db.select().from(contactIntentTags)
+            .where(and(eq(contactIntentTags.tenantId, tenantId), inArray(contactIntentTags.contactId, ids)));
+          const byContact = new Map();
+          for (const r of intentRows) {
+            if (!byContact.has(r.contactId)) byContact.set(r.contactId, []);
+            byContact.get(r.contactId).push({
+              tag: r.tag, intentKey: r.intentKey, lastDetectedAt: r.lastDetectedAt,
+            });
+          }
+          items = items.map((c) => ({ ...c, intentTags: byContact.get(c.id) || [] }));
+        }
+      }
+    } catch (e) {
+      console.warn('[contacts] intent enrich falhou:', e.message);
+    }
+
     res.json({
-      items: rows.map(normalizeDoc),
+      items,
       total,
       page,
       limit,

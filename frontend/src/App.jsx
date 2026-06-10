@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useSearchParams, useNavigate } from '
 import {
   Smartphone, Users, FileText, Send, Clock, BarChart2, Database,
   ChevronLeft, ChevronRight, Zap, CreditCard, LogOut,
-  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles, UserCircle, Calendar,
+  ShieldCheck, Settings, Building2, UserCheck, MessageCircle, Cloud, Sparkles, UserCircle, Calendar, Target,
 } from 'lucide-react';
 import MobileShell from './components/layout/MobileShell';
 import MobileWaBlock from './components/MobileWaBlock';
@@ -39,6 +39,7 @@ import PromotionVitrinePublic from './pages/promotions/PromotionVitrinePublic';
 import BookingPublic from './pages/bookings/BookingPublic';
 import Bookings from './pages/Bookings';
 import BookingAlerts from './components/bookings/BookingAlerts';
+import IntentConfig from './pages/IntentConfig';
 
 import Register from './pages/Register';
 import Affiliate from './pages/Affiliate';
@@ -157,7 +158,7 @@ function AdminApp({ basePath = '' }) {
 
 /* ─── App Tenant ──────────────────────────────────────────── */
 
-function buildTenantNavSections(isAffiliate, hasPromotions, hasBookings) {
+function buildTenantNavSections(isAffiliate, hasPromotions, hasBookings, hasIntents) {
   const sections = [
     {
       label: 'Conexão',
@@ -192,6 +193,13 @@ function buildTenantNavSections(isAffiliate, hasPromotions, hasBookings) {
     });
   }
 
+  if (hasIntents) {
+    sections.push({
+      label: 'Intenções',
+      items: [{ to: '/intencoes', label: 'Configurar Intenções', icon: Target }],
+    });
+  }
+
   sections.push({
     label: 'Conta',
     items: [
@@ -223,6 +231,14 @@ function PromotionsRoute({ prefix }) {
   return <Promotions />;
 }
 
+function IntentConfigRoute({ prefix }) {
+  const { hasFeature } = useTenant();
+  if (!hasFeature('intencoes')) {
+    return <Navigate to={`${prefix}/send`} replace />;
+  }
+  return <IntentConfig />;
+}
+
 function TenantLayout({ basePath = '' }) {
   const { isAuthenticated, isLoading, tenant, waStatus, logout, isAffiliate, hasFeature } = useTenant();
   const [open, setOpen] = useState(true);
@@ -230,7 +246,8 @@ function TenantLayout({ basePath = '' }) {
   const prefix = basePath.replace(/\/$/, '');
   const hasPromotions = hasFeature('vitrine-promocoes');
   const hasBookings = hasFeature('agendamentos');
-  const tenantNavSections = buildTenantNavSections(isAffiliate, hasPromotions, hasBookings);
+  const hasIntents = hasFeature('intencoes');
+  const tenantNavSections = buildTenantNavSections(isAffiliate, hasPromotions, hasBookings, hasIntents);
 
   if (window.location.pathname === `${prefix}/registrar` || window.location.pathname === '/registrar') {
     return <Register />;
@@ -365,6 +382,7 @@ function TenantLayout({ basePath = '' }) {
         <Route path={`${prefix}/billing`} element={<Billing />} />
         <Route path={`${prefix}/profile`} element={<Profile />} />
         <Route path={`${prefix}/bookings`} element={<Bookings />} />
+        <Route path={`${prefix}/intencoes`} element={<IntentConfigRoute prefix={prefix} />} />
         <Route path={`${prefix}/change-password`} element={<ChangePasswordPage />} />
         <Route path={`${prefix}/affiliate`} element={<AffiliateRoute isAffiliate={isAffiliate} prefix={prefix} />} />
         <Route path="*" element={<Navigate to={defaultRoute} replace />} />

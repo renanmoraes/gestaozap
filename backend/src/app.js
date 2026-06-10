@@ -92,6 +92,7 @@ app.use('/api/quick-replies', tenantResolver, authGuard, require('./routes/quick
 app.use('/api/features', tenantResolver, authGuard, require('./routes/features.routes'));
 app.use('/api/promotions', tenantResolver, authGuard, require('./routes/promotions.routes'));
 app.use('/api/bookings', tenantResolver, authGuard, require('./routes/bookings.routes'));
+app.use('/api/intent-rules', tenantResolver, authGuard, require('./routes/intent-rules.routes'));
 app.use('/api/tenant/profile', tenantResolver, authGuard, require('./routes/tenant-profile.routes'));
 app.use('/api/public/promotions', tenantResolver, require('./routes/public-promotions.routes'));
 app.use('/api/public/bookings', tenantResolver, require('./routes/public-bookings.routes'));
@@ -116,6 +117,7 @@ if (require.main === module) {
   connectDB().then(() => {
     startConfigPoller();
     registerProcessor(io);
+    require('./services/intent-history.service').registerIntentHistoryProcessor(io).catch((e) => console.warn('[intent] history processor:', e.message));
     scheduleAutoBackup();
     scheduleContractExpiryCheck();
     scheduleOverageBilling();

@@ -1,19 +1,35 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Tag, StickyNote, User, Phone, Plus, Trash2 } from 'lucide-react';
+import { X, Tag, StickyNote, User, Phone, Plus, Trash2, Target } from 'lucide-react';
 import api from '../../api';
 import { dialog } from '../../utils/dialog';
 import { apiErrorMessage, MSG } from '../../utils/messages';
 import { formatPhone } from '../../utils/phone';
 import { formatDateBr, formatDateTimeBr } from '../../utils/timezone';
+import { useTenant } from '../../context/TenantContext';
+import { intentLabel, getTemperature, daysAgoLabel, TEMPERATURE_META } from '../../utils/intent';
 
 export default function ChatSidebar({ conversation, messages, onClose, onTagsChange }) {
+  const { hasFeature } = useTenant();
+  const hasIntents = hasFeature('intencoes');
   const [tab, setTab] = useState('detalhes');
   const [newTag, setNewTag] = useState('');
   const [tags, setTags] = useState([]);
+  const [intents, setIntents] = useState([]);
+
+  const contactId = conversation?.contactId || conversation?.contact_id || null;
 
   useEffect(() => {
     setTags(Array.isArray(conversation?.tags) ? conversation.tags : []);
   }, [conversation?.id]);
+
+  useEffect(() => {
+    if (!hasIntents || !contactId) { setIntents([]); return; }
+    let cancelled = false;
+    api.get(`/api/intent-rules/contact/${contactId}`)
+      .then(({ data }) => { if (!cancelled) setIntents(Array.isArray(data?.events) ? data.events : []); })
+      .catch(() => { if (!cancelled) setIntents([]); });
+    return () => { cancelled = true; };
+  }, [hasIntents, contactId, conversation?.id]);
 
   const notes = useMemo(() => messages.filter((m) => m.direction === 'note'), [messages]);
 
@@ -60,6 +76,7 @@ export default function ChatSidebar({ conversation, messages, onClose, onTagsCha
         {[
           { key: 'detalhes', label: 'Sobre', icon: User },
           { key: 'tags', label: 'Tags', icon: Tag },
+          ...(hasIntents ? [{ key: 'intencoes', label: 'Intenções', icon: Target }] : []),
           { key: 'notas', label: `Notas${notes.length ? ` (${notes.length})` : ''}`, icon: StickyNote },
         ].map(({ key, label, icon: Icon }) => (
           <button
@@ -141,6 +158,36 @@ export default function ChatSidebar({ conversation, messages, onClose, onTagsCha
               ))}
               {!tags.length && <p className="text-xs text-slate-400">Sem tags ainda.</p>}
             </div>
+          </div>
+        )}
+
+        {/* Intenções */}
+        {tab === 'intencoes' && (
+          <div>
+            <p className="text-xs text-slate-500 mb-3">
+              Intenções detectadas automaticamente nas mensagens deste contato.
+            </p>
+            {!contactId ? (
+              <p className="text-xs text-slate-400">Vincule um contato para ver as intenções.</p>
+            ) : !intents.length ? (
+              <p className="text-xs text-slate-400">Nenhuma intenção detectada ainda.</p>
+            ) : (
+              <div className="space-y-2">
+                {intents.map((ev) => {
+                  const temp = getTemperature(ev.detectedAt || ev.detected_at);
+                  const meta = TEMPERATURE_META[temp];
+                  return (
+                    <div key={ev.id} className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-800 truncate">{intentLabel(ev.intentKey || ev.intent_key)}</p>
+                        <p className="text-[10px] text-slate-400">{daysAgoLabel(ev.detectedAt || ev.detected_at)}</p>
+                      </div>
+                      <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full border ${meta.cls}`}>{meta.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

@@ -133,6 +133,16 @@ const DEFAULT_FEATURES = [
     active: true,
     billing_day: 5,
   },
+  {
+    slug: 'intencoes',
+    name: 'Intenções Inteligentes',
+    description: 'Identifique automaticamente interesse em preço, pedidos de teste, reclamações, cancelamentos e oportunidades dentro das conversas.',
+    price_brl: '49.99',
+    is_free: false,
+    is_system: false,
+    active: true,
+    billing_day: 5,
+  },
 ];
 
 async function seedFeatures(pool) {
