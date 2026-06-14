@@ -6,9 +6,9 @@ const {
   clearPauseFlag,
 } = require('../config/queue');
 const { emitProgress, emitJobState } = require('./send-live.service');
-const { eq, and, or, sql } = require('drizzle-orm');
+const { eq, and, or, sql, desc } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
-const { sendLogs, tenants, messageUsage, contracts } = require('../db/schema');
+const { sendLogs, tenants, messageUsage, contracts, plans } = require('../db/schema');
 const { getConfigInt } = require('../config/platform');
 const whatsapp = require('./whatsapp.service');
 const guard = require('./whatsapp.guard');
@@ -404,8 +404,10 @@ function buildProcessor(io) {
           if (shouldPauseBatch(sentCount)) {
             io.to(tenantId).emit('send:batch_pause', { campaignId, jobId, sentCount });
             if (await sleepWithCancel(getBatchPauseMs(), tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
-          } else if (await sleepWithCancel(buildAntibanDelay(), tenantId, jobId, dispatchId, job, progPct)) {
-            return finishCancelled();
+          } else {
+            const redis = getQueueForTenant(tenantId).client;
+            const waitMs = await guard.acquireGlobalSendSlot(tenantId, redis, buildAntibanDelay());
+            if (await sleepWithCancel(waitMs, tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
           }
         } catch (err) {
           const cls = guard.classifyError(err);
@@ -526,9 +528,24 @@ async function registerProcessor(io) {
  * Registra processor para um tenant específico.
  * Usado pelo admin ao criar um novo tenant em runtime.
  */
-function registerProcessorForTenant(tenantId, io) {
+async function registerProcessorForTenant(tenantId, io) {
+  const db = getDb();
+  let concurrency = 1;
+  try {
+    const rows = await db
+      .select({ maxConcurrentSends: plans.maxConcurrentSends })
+      .from(contracts)
+      .innerJoin(plans, eq(plans.id, contracts.planId))
+      .where(and(eq(contracts.tenantId, tenantId), eq(contracts.status, 'active')))
+      .orderBy(desc(contracts.expiresAt))
+      .limit(1);
+    concurrency = Number(rows[0]?.maxConcurrentSends) || 1;
+  } catch (e) {
+    console.warn(`[queue] plano não encontrado para tenant=${tenantId}, concurrency=1`);
+  }
   const queue = getQueueForTenant(tenantId);
-  queue.process(buildProcessor(io));
+  queue.process(concurrency, buildProcessor(io));
+  console.log(`[queue] tenant=${tenantId} processor registrado (concurrency=${concurrency})`);
 }
 
 module.exports = {

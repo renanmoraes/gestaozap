@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  Send, Tag, Eye, Loader2, X, Info, Pause, Play, Search, Users, CheckSquare, Square,
+  Send, Tag, Eye, Loader2, X, Info, Pause, Play, Search, Users, CheckSquare, Square, Clock,
 } from 'lucide-react';
+import { formatEstimate } from '../utils/sendEstimate';
 import { Link } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket';
 import { useTenant } from '../context/TenantContext';
@@ -54,16 +55,17 @@ export default function SendPage() {
   const [searchDebounced, setSearchDebounced] = useState('');
 
   const [vars, setVars] = useState({ evento: '', data: '', horario: '', local: '' });
-  const [progress, setProgress] = useState(null);
   const [notice, setNotice] = useState(null);
-  const [sending, setSending] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [activeJobId, setActiveJobId] = useState(null);
-  const [paused, setPaused] = useState(false);
-  const [acting, setActing] = useState(false);
+  const [sendConfig, setSendConfig] = useState(null);
+  const [activeDispatches, setActiveDispatches] = useState({});
 
   useEffect(() => {
     api.get('/api/campaigns').then((r) => setCampaigns(r.data));
+  }, []);
+
+  useEffect(() => {
+    api.get('/api/send/config').then((r) => setSendConfig(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -146,45 +148,37 @@ export default function SendPage() {
   }, [contacts.length, totalEligible]);
 
   useSocket({
-    'send:progress': (d) => { setProgress(d); if (d.jobId != null) setActiveJobId(String(d.jobId)); },
+    'send:progress': (d) => {
+      const key = d.runId || d.dispatchId || d.jobId;
+      if (!key) return;
+      setActiveDispatches((prev) => ({
+        ...prev,
+        [key]: { jobId: String(d.jobId), sentCount: d.sentCount ?? 0, total: d.total ?? 0, failedCount: d.failedCount ?? 0, paused: false, dispatchId: key },
+      }));
+    },
     'send:paused': (d) => {
-      setPaused(true);
-      if (d.jobId != null) setActiveJobId(String(d.jobId));
+      const key = d.runId || d.dispatchId || d.jobId;
+      if (!key) return;
+      setActiveDispatches((prev) => ({ ...prev, [key]: { ...(prev[key] || {}), paused: true, jobId: String(d.jobId) } }));
       setNotice(d.reason === 'outside_hours' && d.resumesAt
-        ? `Fora do horário de envio. Pausado automaticamente — retoma em ${formatDateTimeBr(d.resumesAt)}.`
+        ? `Fora do horário. Retoma em ${formatDateTimeBr(d.resumesAt)}.`
         : 'Envio pausado.');
     },
-    'send:resumed': (d) => { setPaused(false); if (d.jobId != null) setActiveJobId(String(d.jobId)); setNotice(null); },
+    'send:resumed': (d) => {
+      const key = d.runId || d.dispatchId || d.jobId;
+      if (!key) return;
+      setActiveDispatches((prev) => ({ ...prev, [key]: { ...(prev[key] || {}), paused: false } }));
+      setNotice(null);
+    },
     'send:done': (d) => {
-      setProgress(d);
-      if (d.rescheduled) {
-        setPaused(true);
-        setNotice(`Fora do horário — ${d.sentCount}/${d.total} enviados. O restante retoma automaticamente em ${formatDateTimeBr(d.resumesAt)}.`);
-        return;
-      }
-      setSending(false); setPaused(false); setActiveJobId(null);
+      const key = d.runId || d.dispatchId || d.jobId;
+      if (key) setActiveDispatches((prev) => { const n = { ...prev }; delete n[key]; return n; });
       if (d.cancelled) setNotice(`Envio cancelado. Enviados: ${d.sentCount}/${d.total}`);
-      else if (d.skippedForHours) setNotice(`Fora da janela de horário (${d.hourStart}h–${d.hourEnd}h).`);
+      else if (!d.rescheduled) setNotice(null);
     },
     'send:alert': ({ message }) => setNotice(message),
-    'send:batch_pause': ({ sentCount }) => setNotice(`Pausa entre lotes após ${sentCount} envios (10 min)`),
+    'send:batch_pause': ({ sentCount }) => setNotice(`Pausa entre lotes após ${sentCount} envios (15 min)`),
   });
-
-  const pauseSend = async () => {
-    if (!activeJobId) return;
-    setActing(true);
-    try { await api.post(`/api/queue/jobs/${activeJobId}/pause`); setPaused(true); }
-    catch (err) { setNotice(err.response?.data?.error || 'Erro ao pausar'); }
-    finally { setActing(false); }
-  };
-
-  const resumeSend = async () => {
-    if (!activeJobId) return;
-    setActing(true);
-    try { await api.post(`/api/queue/jobs/${activeJobId}/resume`); setPaused(false); }
-    catch (err) { setNotice(err.response?.data?.error || 'Erro ao retomar'); }
-    finally { setActing(false); }
-  };
 
   const campaign = campaigns.find((c) => c._id === campaignId);
   const preview = campaign ? buildPreview(campaign.text, vars, campaign.appendOptOut, campaign.optOutText) : '';
@@ -244,7 +238,7 @@ export default function SendPage() {
       if (!(await confirmSendOutsideHours(DEFAULT_HOUR_START, DEFAULT_HOUR_END))) return;
       ignoreHours = true;
     }
-    setSending(true); setNotice(null); setProgress(null); setPaused(false); setActiveJobId(null);
+    setNotice(null);
     try {
       const payload = {
         campaignId,
@@ -273,15 +267,19 @@ export default function SendPage() {
       }
 
       const r = await api.post('/api/send', payload);
-      if (r.data.jobId) setActiveJobId(String(r.data.jobId));
+      if (r.data.jobId) {
+        const dispatchKey = r.data.dispatchId || String(r.data.jobId);
+        setActiveDispatches((prev) => ({
+          ...prev,
+          [dispatchKey]: { jobId: String(r.data.jobId), sentCount: 0, total: r.data.queued, failedCount: 0, paused: false, dispatchId: dispatchKey },
+        }));
+      }
       const msgs = [];
       if (r.data.skippedDuplicate) msgs.push(`${r.data.skippedDuplicate} já receberam este template (pulados)`);
       if (r.data.optedOutCount) msgs.push(`${r.data.optedOutCount} optaram por não receber (pulados)`);
       if (msgs.length) setNotice(msgs.join(' · '));
-      if (!r.data.jobId) setSending(false);
     } catch (err) {
       setNotice(err.response?.data?.message || err.response?.data?.error || 'Erro ao iniciar envio');
-      setSending(false);
     }
   };
 
@@ -310,36 +308,35 @@ export default function SendPage() {
           </div>
         )}
 
-        {progress && !progress.cancelled && !progress.skippedForHours && (
-          <div className="card p-4 space-y-2">
+        {Object.values(activeDispatches).map((d) => (
+          <div key={d.dispatchId} className="card p-4 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="font-medium text-slate-700">
-                {paused ? 'Pausado' : sending ? 'Enviando…' : 'Concluído'} {progress.sentCount}/{progress.total}
+                {d.paused ? 'Pausado' : 'Enviando…'} {d.sentCount}/{d.total}
               </span>
-              {progress.failedCount > 0 && <span className="text-red-600 text-xs">{progress.failedCount} falha(s)</span>}
+              {d.failedCount > 0 && <span className="text-red-600 text-xs">{d.failedCount} falha(s)</span>}
             </div>
             <div className="w-full bg-slate-100 rounded-full h-2">
               <div className="bg-brand-600 h-2 rounded-full transition-all"
-                style={{ width: `${((progress.sentCount + (progress.failedCount || 0)) / progress.total) * 100}%` }} />
+                style={{ width: `${((d.sentCount + d.failedCount) / Math.max(1, d.total)) * 100}%` }} />
+            </div>
+            <div className="flex gap-2">
+              {!d.paused ? (
+                <button onClick={() => api.post(`/api/queue/jobs/${d.jobId}/pause`).then(() =>
+                  setActiveDispatches((p) => ({ ...p, [d.dispatchId]: { ...p[d.dispatchId], paused: true } })))}
+                  className="btn-secondary py-1.5 px-3 text-xs">
+                  <Pause className="w-3.5 h-3.5" />Pausar
+                </button>
+              ) : (
+                <button onClick={() => api.post(`/api/queue/jobs/${d.jobId}/resume`).then(() =>
+                  setActiveDispatches((p) => ({ ...p, [d.dispatchId]: { ...p[d.dispatchId], paused: false } })))}
+                  className="btn-primary py-1.5 px-3 text-xs">
+                  <Play className="w-3.5 h-3.5" />Retomar
+                </button>
+              )}
             </div>
           </div>
-        )}
-
-        {sending && activeJobId && (
-          <div className="flex gap-2">
-            {!paused ? (
-              <button onClick={pauseSend} disabled={acting} className="btn-secondary py-2 px-4 text-sm">
-                {acting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pause className="w-4 h-4" />}
-                Pausar envio
-              </button>
-            ) : (
-              <button onClick={resumeSend} disabled={acting} className="btn-primary py-2 px-4 text-sm">
-                {acting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                Retomar envio
-              </button>
-            )}
-          </div>
-        )}
+        ))}
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2 space-y-4">
@@ -390,6 +387,18 @@ export default function SendPage() {
                     {selectedCount.toLocaleString('pt-BR')} selecionado(s)
                   </div>
                 </div>
+
+                {selectedCount > 0 && sendConfig && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600">
+                    <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>
+                      {formatEstimate(selectedCount, sendConfig, Object.keys(activeDispatches).length + 1)}
+                      {Object.keys(activeDispatches).length > 0 && (
+                        <span className="text-brand-600 font-medium"> · {Object.keys(activeDispatches).length + 1} workers ativos</span>
+                      )}
+                    </span>
+                  </div>
+                )}
 
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -510,10 +519,9 @@ export default function SendPage() {
               </div>
             </div>
 
-            <button onClick={dispatch} disabled={sending || !campaignId || !selectedCount}
-              className="btn-primary w-full justify-center py-3">
-              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {sending ? 'Enviando…' : `Disparar para ${selectedCount.toLocaleString('pt-BR')} contato(s)`}
+            <button onClick={dispatch} disabled={!campaignId || !selectedCount} className="btn-primary w-full justify-center py-3">
+              <Send className="w-4 h-4" />
+              {`Disparar para ${selectedCount.toLocaleString('pt-BR')} contato(s)`}
             </button>
           </div>
 

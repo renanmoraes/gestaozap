@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, RefreshCw, XCircle, CheckCircle2, AlertCircle, Loader2, Inbox, Pause, Play } from 'lucide-react';
+import { estimateCampaignDuration } from '../utils/sendEstimate';
 import api from '../api';
 import { formatDateTimeBr } from '../utils/timezone';
 import { formatDuration } from '../utils/duration';
@@ -143,6 +144,7 @@ export default function Queue() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [sendConfig, setSendConfig] = useState(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -158,6 +160,10 @@ export default function Queue() {
     if (!tenant?.id) return;
     load();
   }, [load, tenant?.id]);
+
+  useEffect(() => {
+    api.get('/api/send/config').then((r) => setSendConfig(r.data)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!tenant?.id) return undefined;
@@ -306,6 +312,19 @@ export default function Queue() {
                             </span>
                           )}
                         </p>
+                        {sendConfig && job.contactsTotal > 0 && (() => {
+                          const remaining = job.contactsTotal - (job.result?.sentCount ?? 0);
+                          const { contactsPerDay, days } = estimateCampaignDuration(remaining, sendConfig, 1);
+                          const daysLabel = days < 1 ? `~${Math.ceil(days * 24)}h` : `~${Math.ceil(days)} dias`;
+                          return (
+                            <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+                              <Clock className="w-3 h-3" />
+                              {remaining.toLocaleString('pt-BR')} restantes · conclusão estimada:{' '}
+                              <span className="font-medium text-slate-600">{daysLabel}</span>
+                              &nbsp;({contactsPerDay.toLocaleString('pt-BR')}/dia)
+                            </p>
+                          );
+                        })()}
                       </div>
                     )}
 

@@ -228,6 +228,29 @@ async function getKillSwitch(tenantId) {
   } catch (_) { return null; }
 }
 
+/* ─── Slot global de envio por tenant (Redis atômico) ─────────── */
+
+const GLOBAL_SLOT_SCRIPT = `
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local delay = tonumber(ARGV[2])
+local stored = tonumber(redis.call('GET', key) or '0')
+local slot = math.max(stored, now)
+redis.call('SET', key, tostring(slot + delay), 'EX', 7200)
+return tostring(slot - now)
+`;
+
+async function acquireGlobalSendSlot(tenantId, redisClient, delayMs) {
+  try {
+    const key = `gestaozap:${tenantId}:next-send-slot`;
+    const waitStr = await redisClient.eval(GLOBAL_SLOT_SCRIPT, 1, key, Date.now(), delayMs);
+    return Math.max(0, Number(waitStr) || 0);
+  } catch (e) {
+    console.warn('[guard] acquireGlobalSendSlot erro:', e.message);
+    return delayMs;
+  }
+}
+
 /* ─── Helper de log (defensável por mensagem) ─────────────────── */
 
 function defensiveLogContext(opts = {}) {
@@ -276,4 +299,7 @@ module.exports = {
 
   // Logs
   defensiveLogContext,
+
+  // Slot global coordenado por Redis
+  acquireGlobalSendSlot,
 };

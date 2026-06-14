@@ -197,4 +197,15 @@ router.post('/', requireWAConnected, async (req, res) => {
   }
 });
 
+router.get('/config', async (req, res) => {
+  res.json({
+    antibanDelayMinMs: getConfigInt('antiban_delay_min_ms', 30_000),
+    antibanDelayMaxMs: getConfigInt('antiban_delay_max_ms', 120_000),
+    batchSize:         getConfigInt('batch_size', 20),
+    batchPauseMs:      getConfigInt('batch_pause_ms', 900_000),
+    hourStart:         getConfigInt('hour_start_default', 8),
+    hourEnd:           getConfigInt('hour_end_default', 20),
+  });
+});
+
 module.exports = router;
