@@ -25,7 +25,7 @@ const REGISTERED_TTL_MS = 60 * 60 * 1000;
 // Sliding window de ACKs por tenant para o quality gate
 const ACK_WINDOW = new Map(); // tenantId → { ok: number[], error: number[] }
 const ACK_WINDOW_SIZE = 100; // últimos N envios consideram para taxa de erro
-const ACK_WINDOW_MAX_AGE = 30 * 60 * 1000; // 30min — descarta envios antigos
+const ACK_WINDOW_MAX_AGE = 60 * 60 * 1000; // 60min — descarta envios antigos
 
 /* ─── E.164 estrito ───────────────────────────────────────────── */
 
@@ -185,12 +185,12 @@ function recordAckResult(tenantId, isError) {
 
 function getErrorRate(tenantId) {
   const win = ACK_WINDOW.get(tenantId);
-  if (!win || win.events.length < 20) return 0; // amostra pequena → ignorar
+  if (!win || win.events.length < 30) return 0; // amostra pequena → ignorar
   const errors = win.events.filter((e) => e.error).length;
   return errors / win.events.length;
 }
 
-const QUALITY_GATE_THRESHOLD = 0.02; // 2%
+const QUALITY_GATE_THRESHOLD = 0.05; // 5%
 
 function isQualityGateBreached(tenantId) {
   return getErrorRate(tenantId) > QUALITY_GATE_THRESHOLD;

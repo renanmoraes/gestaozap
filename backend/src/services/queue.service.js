@@ -18,15 +18,20 @@ const storageService = require('./storage.service');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { getMonthKeyBr, isOutsideSendWindow, msUntilNextHourBr } = require('../utils/timezone.util');
 
-function getBatchSize()             { return getConfigInt('batch_size', 30); }
-function getBatchPauseMs()          { return getConfigInt('batch_pause_ms', 600_000); }
+function getBatchSize()             { return getConfigInt('batch_size', 20); }
+function getBatchPauseMs()          { return getConfigInt('batch_pause_ms', 900_000); }
 function getMaxConsecutiveFailures(){ return getConfigInt('max_consecutive_failures', 3); }
 function getFailurePauseMs()        { return getConfigInt('failure_pause_ms', 300_000); }
 
 function buildAntibanDelay() {
-  const min = getConfigInt('antiban_delay_min_ms', 15_000);
-  const max = getConfigInt('antiban_delay_max_ms', 60_000);
+  const min = getConfigInt('antiban_delay_min_ms', 30_000);
+  const max = getConfigInt('antiban_delay_max_ms', 120_000);
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// Delay mínimo aplicado em rotas de skip/DLQ para não sobrecarregar o cliente WhatsApp.
+function buildSkipDelay() {
+  return getConfigInt('skip_delay_ms', 3_000);
 }
 
 function shouldPauseBatch(sentCount) {
@@ -261,7 +266,7 @@ function buildProcessor(io) {
             campaignId, jobId,
             message: `Quality gate: taxa de erro acima de ${guard.QUALITY_GATE_THRESHOLD * 100}% — pausando para evitar bloqueio do número`,
           });
-          await guard.setKillSwitch(tenantId, 'quality_gate', 3600); // pausa 1h
+          await guard.setKillSwitch(tenantId, 'quality_gate', 1800); // pausa 30min
           incidents.record(tenantId, io, 'quality_gate', 'warning', { errorRate, threshold: guard.QUALITY_GATE_THRESHOLD, campaignId, jobId });
           io.to(tenantId).emit('send:done', { campaignId, jobId, sentCount, failedCount, total, cancelled: true });
           return { sentCount, failedCount, total, cancelled: true, qualityGate: true };
@@ -281,6 +286,7 @@ function buildProcessor(io) {
             index: progIdx, reason: 'invalid_phone',
           }, { failedCount, runId: sendJobId });
           job.progress(progPct);
+          if (await sleepWithCancel(buildSkipDelay(), tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
           continue;
         }
 
@@ -340,6 +346,7 @@ function buildProcessor(io) {
             index: progIdx, reason: 'rate_limit_24h', error: 'rate_limit_24h',
           }, { failedCount, runId: sendJobId });
           job.progress(progPct);
+          if (await sleepWithCancel(buildSkipDelay(), tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
           continue;
         }
 
@@ -357,6 +364,7 @@ function buildProcessor(io) {
               index: progIdx, reason: 'not_on_whatsapp',
             }, { failedCount, runId: sendJobId });
             job.progress(progPct);
+            if (await sleepWithCancel(buildSkipDelay(), tenantId, jobId, dispatchId, job, progPct)) return finishCancelled();
             continue;
           }
         }

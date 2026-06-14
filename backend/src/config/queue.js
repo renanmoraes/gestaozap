@@ -13,7 +13,7 @@ function getQueueForTenant(tenantId) {
     queues.set(tenantId, new Bull(`send-queue:${tenantId}`, {
       redis: REDIS_CONFIG,
       settings: {
-        lockDuration: 300000,
+        lockDuration: 600000,
         stalledInterval: 60000,
         maxStalledCount: 10,
       },
