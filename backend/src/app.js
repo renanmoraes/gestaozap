@@ -1,5 +1,28 @@
 require('dotenv').config();
 process.env.TZ = process.env.TZ || 'America/Sao_Paulo';
+
+// Puppeteer/wwebjs lança erros assíncronos fora de qualquer .catch() quando a página
+// do WhatsApp Web navega durante um page.evaluate() (ex: "Execution context was destroyed").
+// Sem esses handlers o Node.js encerra o processo inteiro, derrubando todos os jobs ativos.
+process.on('unhandledRejection', (reason) => {
+  const msg = (reason instanceof Error ? reason.message : String(reason)) || '';
+  if (/execution context was destroyed|target closed|protocol error|session closed/i.test(msg)) {
+    console.warn('[process] unhandledRejection (puppeteer/wwebjs — ignorado):', msg.slice(0, 200));
+    return;
+  }
+  console.error('[process] unhandledRejection não tratada:', reason);
+});
+
+process.on('uncaughtException', (err, origin) => {
+  const msg = (err instanceof Error ? err.message : String(err)) || '';
+  if (/execution context was destroyed|target closed|protocol error|session closed/i.test(msg)) {
+    console.warn('[process] uncaughtException (puppeteer/wwebjs — ignorado):', msg.slice(0, 200));
+    return;
+  }
+  console.error('[process] uncaughtException —', origin, ':', err);
+  process.exit(1);
+});
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
