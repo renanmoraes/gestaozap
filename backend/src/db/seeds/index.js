@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 
-const ADMIN_PASSWORD = 'P@ssw0rd!2024Gestaozap#Secure';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000001';
 
 const DEFAULT_CONFIGS = [
@@ -89,19 +89,40 @@ async function seedAdminCompanyAndUser(pool) {
       }
     }
 
-    // Hash da senha admin
-    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    // Senha do admin vem de ADMIN_PASSWORD (env). Nunca hardcoded no repositório.
+    const existingAdmin = await client.query(
+      `SELECT id FROM users WHERE email = 'admin@gestaozap.digital'`,
+    );
 
-    // Criar usuário admin
-    const userResult = await client.query(`
-      INSERT INTO users (email, password_hash, must_change_pwd, active)
-      VALUES ('admin@gestaozap.digital', $1, false, true)
-      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
-      RETURNING id
-    `, [passwordHash]);
-
-    const userId = userResult.rows[0].id;
-    console.log('[db] usuário admin criado: admin@gestaozap.digital');
+    let userId;
+    if (ADMIN_PASSWORD) {
+      // Env definida: cria/garante o admin com essa senha
+      const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+      const userResult = await client.query(`
+        INSERT INTO users (email, password_hash, must_change_pwd, active)
+        VALUES ('admin@gestaozap.digital', $1, false, true)
+        ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+        RETURNING id
+      `, [passwordHash]);
+      userId = userResult.rows[0].id;
+      console.log('[db] usuário admin garantido (senha via ADMIN_PASSWORD): admin@gestaozap.digital');
+    } else if (existingAdmin.rows.length) {
+      // Sem env e admin já existe: mantém a senha atual intacta (não sobrescreve)
+      userId = existingAdmin.rows[0].id;
+      console.warn('[db] ADMIN_PASSWORD não definido — senha do admin mantida como está');
+    } else {
+      // Primeiro setup sem env: gera senha aleatória e loga uma única vez
+      const generated = require('crypto').randomBytes(18).toString('base64')
+        .replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
+      const passwordHash = await bcrypt.hash(generated, 10);
+      const userResult = await client.query(`
+        INSERT INTO users (email, password_hash, must_change_pwd, active)
+        VALUES ('admin@gestaozap.digital', $1, true, true)
+        RETURNING id
+      `, [passwordHash]);
+      userId = userResult.rows[0].id;
+      console.warn(`[db] ADMIN_PASSWORD não definido — senha inicial gerada para admin@gestaozap.digital: ${generated}`);
+    }
 
     // Vincular usuário à empresa
     if (companyId) {

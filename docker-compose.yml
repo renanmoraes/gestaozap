@@ -19,6 +19,8 @@ services:
       - NODE_ENV=${NODE_ENV:-production}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gestaozap.digital}
       - ADMIN_SECRET=${ADMIN_SECRET:-dev-secret-change-in-production}
+      # Senha do admin de recuperação (admin@gestaozap.digital) — definir no .env do servidor
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       # AUTH_REQUIRED=true: exige token Bearer em todas as rotas de negócio (ativar em produção)
       - AUTH_REQUIRED=${AUTH_REQUIRED:-false}
       # Email transacional (Resend) — boas-vindas e reset de senha
