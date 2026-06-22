@@ -56,6 +56,171 @@ function Tab({ active, onClick, icon: Icon, children, badge }) {
   );
 }
 
+/* ───────────── Form primitives (mobile-first) ───────────── */
+function Field({ label, hint, children }) {
+  return (
+    <label className="block">
+      <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">{label}</span>
+      {children}
+      {hint && <span className="block text-xs text-slate-400 mt-1.5 leading-snug">{hint}</span>}
+    </label>
+  );
+}
+
+function SectionTitle({ icon: Icon, children }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Icon className="w-4 h-4 text-brand-600 shrink-0" />
+      <h3 className="text-sm font-semibold text-slate-800">{children}</h3>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label, desc, activeColor = 'brand' }) {
+  const on = checked
+    ? (activeColor === 'emerald' ? 'bg-emerald-500' : 'bg-brand-600')
+    : 'bg-slate-300';
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="w-full flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left hover:border-slate-300 transition-colors active:bg-slate-50"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-slate-900">{label}</span>
+        {desc && <span className="block text-xs text-slate-500 mt-0.5 leading-snug">{desc}</span>}
+      </span>
+      <span className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${on}`}>
+        <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-5' : ''}`} />
+      </span>
+    </button>
+  );
+}
+
+function TenantEditForm({ tenant, form, setForm, saving, onSave, onCancel }) {
+  const initials = (tenant.name || '?').slice(0, 2).toUpperCase();
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSave(); }}
+      className="card overflow-hidden"
+    >
+      {/* Cabeçalho do formulário */}
+      <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-white text-base font-bold flex items-center justify-center shrink-0">
+          {initials}
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-base font-bold text-slate-900 leading-tight">Editar cliente</h2>
+          <p className="text-xs text-slate-500 truncate">Atualize os dados de {tenant.name}</p>
+        </div>
+      </div>
+
+      <div className="p-4 sm:p-6 space-y-7">
+        {/* Identificação */}
+        <section className="space-y-4">
+          <SectionTitle icon={Building2}>Identificação</SectionTitle>
+
+          <Field label="Nome do cliente">
+            <input
+              className="input"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Nome da empresa"
+            />
+          </Field>
+
+          <Field label="Link público" hint="Endereço da página pública do cliente.">
+            <div className="flex items-stretch rounded-lg border border-slate-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-brand-500 focus-within:border-transparent transition-shadow">
+              <span className="flex items-center px-3 text-xs sm:text-sm text-slate-500 bg-slate-50 border-r border-slate-200 whitespace-nowrap select-none">
+                gestaozap.digital/
+              </span>
+              <input
+                className="flex-1 min-w-0 px-3 py-2 text-sm text-slate-900 outline-none font-mono"
+                value={form.slug}
+                onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
+                placeholder="slug"
+              />
+            </div>
+          </Field>
+
+          <Field label="Número cadastrado">
+            <input
+              className="input font-mono"
+              inputMode="numeric"
+              value={formatPhone(form.registeredPhone)}
+              onChange={(e) => setForm({ ...form, registeredPhone: maskPhoneInput(e.target.value) })}
+              placeholder="(11) 99999-9999"
+            />
+          </Field>
+        </section>
+
+        {/* Plano e vigência */}
+        <section className="space-y-4">
+          <SectionTitle icon={CreditCard}>Plano e vigência</SectionTitle>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Plano">
+              <select
+                className="input capitalize"
+                value={form.planSlug}
+                onChange={(e) => setForm({ ...form, planSlug: e.target.value })}
+              >
+                {PLANS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
+
+            {!form.lifetime && (
+              <Field label="Dias até o vencimento">
+                <input
+                  type="number"
+                  min="1"
+                  className="input"
+                  value={form.expiryDays}
+                  onChange={(e) => setForm({ ...form, expiryDays: parseInt(e.target.value) || 30 })}
+                  placeholder="30"
+                />
+              </Field>
+            )}
+          </div>
+
+          <Toggle
+            checked={form.lifetime}
+            onChange={(v) => setForm({ ...form, lifetime: v })}
+            label="Acesso vitalício ♾️"
+            desc="O contrato não expira. Desligue para definir um prazo em dias."
+          />
+        </section>
+
+        {/* Status */}
+        <section className="space-y-4">
+          <SectionTitle icon={Shield}>Status da conta</SectionTitle>
+          <Toggle
+            checked={form.active}
+            onChange={(v) => setForm({ ...form, active: v })}
+            label="Cliente ativo"
+            desc="Quando desligado, o cliente fica bloqueado e não consegue acessar."
+            activeColor="emerald"
+          />
+        </section>
+      </div>
+
+      {/* Barra de ações — fixa no rodapé no mobile */}
+      <div className="flex gap-3 px-4 sm:px-6 py-3 border-t border-slate-100 bg-white sticky bottom-0 pb-safe">
+        <button type="button" onClick={onCancel} className="btn-secondary flex-1 sm:flex-none justify-center">
+          <X className="w-4 h-4" />
+          Cancelar
+        </button>
+        <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Salvar alterações
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export default function AdminTenantDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -225,7 +390,7 @@ export default function AdminTenantDetail() {
           <button onClick={load} className="btn-secondary text-sm gap-1.5" aria-label="Atualizar">
             <RefreshCw className="w-4 h-4" /><span className="hidden sm:inline">Atualizar</span>
           </button>
-          {!editing ? (
+          {!editing && (
             <>
               <button onClick={makeAffiliate} className="btn-secondary text-sm gap-1.5">
                 <Tag className="w-4 h-4" />Afiliado
@@ -249,20 +414,23 @@ export default function AdminTenantDetail() {
                 {t.active ? 'Bloquear' : 'Reativar'}
               </button>
             </>
-          ) : (
-            <>
-              <button onClick={() => { setEdit(false); load(); }} className="btn-secondary text-sm">
-                Cancelar
-              </button>
-              <button onClick={save} disabled={saving} className="btn-primary text-sm gap-1.5">
-                {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Salvar
-              </button>
-            </>
           )}
         </div>
       </div>
 
+      {editing && (
+        <TenantEditForm
+          tenant={t}
+          form={form}
+          setForm={setForm}
+          saving={saving}
+          onSave={save}
+          onCancel={() => { setEdit(false); load(); }}
+        />
+      )}
+
+      {!editing && (
+      <>
       {/* Header card */}
       <div className="card p-4 sm:p-6">
         <div className="flex items-start justify-between mb-4">
@@ -271,22 +439,8 @@ export default function AdminTenantDetail() {
               {t.name.slice(0, 2).toUpperCase()}
             </div>
             <div>
-              {editing ? (
-                <div className="space-y-2">
-                  <input className="input py-1.5" value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                  <div className="flex gap-2">
-                    <span className="text-xs text-slate-500 py-1">gestaozap.digital/</span>
-                    <input className="input py-1 text-sm" placeholder="slug" value={form.slug}
-                      onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} />
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <h1 className="text-xl font-bold text-slate-900">{t.name}</h1>
-                  <p className="text-sm text-slate-500 font-mono">/{t.slug}</p>
-                </>
-              )}
+              <h1 className="text-xl font-bold text-slate-900">{t.name}</h1>
+              <p className="text-sm text-slate-500 font-mono">/{t.slug}</p>
             </div>
           </div>
 
@@ -316,46 +470,20 @@ export default function AdminTenantDetail() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-100">
           <div>
             <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Número cadastrado</div>
-            {editing ? (
-              <input className="input py-1.5 text-sm font-mono"
-                value={formatPhone(form.registeredPhone)}
-                onChange={(e) => setForm({ ...form, registeredPhone: maskPhoneInput(e.target.value) })} />
-            ) : (
-              <div className="text-sm font-mono text-slate-800">{formatPhone(t.registered_phone)}</div>
-            )}
+            <div className="text-sm font-mono text-slate-800">{formatPhone(t.registered_phone)}</div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Plano atual</div>
-            {editing ? (
-              <select className="input py-1.5 text-sm" value={form.planSlug}
-                onChange={(e) => setForm({ ...form, planSlug: e.target.value })}>
-                {PLANS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-            ) : (
-              <div className="text-sm text-slate-800">
-                {t.plan_name || '—'}
-                {t.price_brl && (
-                  <span className="text-xs text-slate-400 ml-1">R$ {Number(t.price_brl).toFixed(2)}/mês</span>
-                )}
-              </div>
-            )}
+            <div className="text-sm text-slate-800">
+              {t.plan_name || '—'}
+              {t.price_brl && (
+                <span className="text-xs text-slate-400 ml-1">R$ {Number(t.price_brl).toFixed(2)}/mês</span>
+              )}
+            </div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Vencimento</div>
-            {editing ? (
-              <div className="space-y-1">
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input type="checkbox" checked={form.lifetime}
-                    onChange={(e) => setForm({ ...form, lifetime: e.target.checked })} />
-                  Vitalício ♾️
-                </label>
-                {!form.lifetime && (
-                  <input type="number" className="input py-1 text-sm" min="1" value={form.expiryDays}
-                    onChange={(e) => setForm({ ...form, expiryDays: parseInt(e.target.value) || 30 })}
-                    placeholder="Dias" />
-                )}
-              </div>
-            ) : isLifetime ? (
+            {isLifetime ? (
               <div className="text-sm text-emerald-700 font-semibold">♾️ Vitalício</div>
             ) : daysToExpiry != null ? (
               <div className="text-sm text-slate-800">
@@ -714,6 +842,8 @@ export default function AdminTenantDetail() {
 
       {/* Incidentes */}
       {tab === 'incidents' && <IncidentsPanel tenantId={id} />}
+      </>
+      )}
     </div>
   );
 }

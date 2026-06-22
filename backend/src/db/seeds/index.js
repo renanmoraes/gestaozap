@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 
 const ADMIN_PASSWORD = 'P@ssw0rd!2024Gestaozap#Secure';
+const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000001';
 
 const DEFAULT_CONFIGS = [
   { key: 'batch_size', value: '30', description: 'Mensagens por lote antes da pausa anti-ban' },
@@ -60,24 +61,32 @@ async function seedPlatformConfig(pool) {
 async function seedAdminCompanyAndUser(pool) {
   const client = await pool.connect();
   try {
-    // Criar empresa admin (ID 0)
+    // Criar empresa admin (ID 0) vinculada ao tenant default
     const companyResult = await client.query(`
-      INSERT INTO companies (company_id, name, active)
-      VALUES ('0', 'GestãoZap - Administração', true)
+      INSERT INTO companies (company_id, name, active, tenant_id)
+      VALUES ('0', 'GestãoZap - Administração', true, $1)
       ON CONFLICT (company_id) DO NOTHING
       RETURNING id
-    `);
+    `, [DEFAULT_TENANT_ID]);
 
     let companyId = null;
     if (companyResult.rows.length > 0) {
       companyId = companyResult.rows[0].id;
       console.log('[db] empresa admin criada: ID 0');
     } else {
-      // Se já existe, pega o ID
+      // Se já existe, garante o vínculo com o tenant default e pega o ID
       const existingCompany = await client.query(`
-        SELECT id FROM companies WHERE company_id = '0'
-      `);
-      companyId = existingCompany.rows[0]?.id;
+        UPDATE companies SET tenant_id = $1
+        WHERE company_id = '0' AND tenant_id IS DISTINCT FROM $1
+        RETURNING id
+      `, [DEFAULT_TENANT_ID]);
+      if (existingCompany.rows.length > 0) {
+        companyId = existingCompany.rows[0].id;
+        console.log('[db] empresa admin vinculada ao tenant default');
+      } else {
+        const row = await client.query(`SELECT id FROM companies WHERE company_id = '0'`);
+        companyId = row.rows[0]?.id;
+      }
     }
 
     // Hash da senha admin
