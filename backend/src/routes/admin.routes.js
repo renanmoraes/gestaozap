@@ -11,6 +11,7 @@ const {
   paymentRecords,
   sendLogs,
   affiliates,
+  users,
 } = require('../db/schema');
 const { assertTenantLinkable, fillAffiliateFromTenant } = require('../services/affiliate.service');
 const { sendAffiliateWelcome } = require('../services/affiliate-email.service');
@@ -332,17 +333,52 @@ router.post('/tenants', async (req, res) => {
 router.patch('/tenants/:id', async (req, res) => {
   try {
     const db = getDb();
-    const { name, registeredPhone, active, slug, planSlug, expiryDays, lifetime } = req.body;
+    const tenantId = req.params.id;
+    const { name, registeredPhone, active, slug, planSlug, expiryDays, lifetime, email, document, documentType } = req.body;
 
     const update = { updatedAt: new Date() };
     if (name !== undefined) update.name = name;
     if (registeredPhone !== undefined) update.registeredPhone = String(registeredPhone).replace(/\D/g, '');
     if (active !== undefined) update.active = Boolean(active);
     if (slug !== undefined) update.slug = String(slug).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    if (document !== undefined) update.document = document ? String(document).replace(/\D/g, '') : null;
+    if (documentType !== undefined) {
+      const dt = String(documentType || '').toLowerCase();
+      update.documentType = (dt === 'cpf' || dt === 'cnpj') ? dt : null;
+    }
+
+    // Atualiza o e-mail do dono (tabela users) — e-mail é único no sistema
+    if (email !== undefined) {
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return res.status(400).json({ error: 'E-mail inválido' });
+      }
+      const owner = await db.execute(sql`
+        SELECT u.id FROM users u
+        JOIN user_company uc ON uc.user_id = u.id
+        JOIN companies co ON co.id = uc.company_id
+        WHERE co.tenant_id = ${tenantId}
+        ORDER BY uc.created_at ASC
+        LIMIT 1
+      `).then((r) => r.rows[0]);
+      if (!owner?.id) {
+        return res.status(400).json({ error: 'Este cliente não possui usuário vinculado para alterar o e-mail.' });
+      }
+      try {
+        await db.update(users)
+          .set({ email: normalizedEmail, updatedAt: new Date() })
+          .where(eq(users.id, owner.id));
+      } catch (e) {
+        if (e.code === '23505') {
+          return res.status(409).json({ error: 'Este e-mail já está em uso por outro usuário.' });
+        }
+        throw e;
+      }
+    }
 
     const [tenant] = await db.update(tenants)
       .set(update)
-      .where(eq(tenants.id, req.params.id))
+      .where(eq(tenants.id, tenantId))
       .returning();
 
     if (!tenant) return res.status(404).json({ error: 'Cliente não encontrado' });
@@ -381,6 +417,7 @@ router.get('/tenants/:id', async (req, res) => {
     const detail = await db.execute(sql`
       SELECT
         t.id, t.slug, t.name, t.registered_phone, t.active,
+        t.document, t.document_type,
         t.terms_accepted_at, t.terms_version, t.created_at, t.updated_at,
         t.affiliate_code, t.affiliate_id,
         af.name AS affiliate_name,
@@ -389,7 +426,8 @@ router.get('/tenants/:id', async (req, res) => {
         c.started_at AS contract_started_at, c.expires_at AS contract_expires_at,
         c.auto_renew AS contract_auto_renew,
         p.id AS plan_id, p.slug AS plan_slug, p.name AS plan_name,
-        p.price_brl, p.messages_per_month
+        p.price_brl, p.messages_per_month,
+        owner.email AS email, owner.user_id AS owner_user_id
       FROM tenants t
       LEFT JOIN whatsapp_sessions ws ON ws.tenant_id = t.id
       LEFT JOIN LATERAL (
@@ -399,6 +437,15 @@ router.get('/tenants/:id', async (req, res) => {
         ORDER BY c2.created_at DESC
         LIMIT 1
       ) c ON true
+      LEFT JOIN LATERAL (
+        SELECT u.email, u.id AS user_id
+        FROM users u
+        JOIN user_company uc ON uc.user_id = u.id
+        JOIN companies co ON co.id = uc.company_id
+        WHERE co.tenant_id = t.id
+        ORDER BY uc.created_at ASC
+        LIMIT 1
+      ) owner ON true
       LEFT JOIN plans p ON p.id = c.plan_id
       LEFT JOIN affiliates af ON af.id = t.affiliate_id
       WHERE t.id = ${tenantId}

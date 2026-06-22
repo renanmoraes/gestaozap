@@ -154,6 +154,42 @@ function TenantEditForm({ tenant, form, setForm, saving, onSave, onCancel }) {
               placeholder="(11) 99999-9999"
             />
           </Field>
+
+          <Field label="E-mail de acesso" hint="Usado para login do cliente e para receber o reset de senha.">
+            <div className="relative">
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="email"
+                className="input pl-9"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="cliente@email.com"
+              />
+            </div>
+          </Field>
+
+          <div className="grid grid-cols-[110px_1fr] gap-3">
+            <Field label="Tipo">
+              <select
+                className="input"
+                value={form.documentType}
+                onChange={(e) => setForm({ ...form, documentType: e.target.value })}
+              >
+                <option value="">—</option>
+                <option value="cpf">CPF</option>
+                <option value="cnpj">CNPJ</option>
+              </select>
+            </Field>
+            <Field label="Documento">
+              <input
+                className="input font-mono"
+                inputMode="numeric"
+                value={form.document}
+                onChange={(e) => setForm({ ...form, document: e.target.value.replace(/\D/g, '') })}
+                placeholder="Somente números"
+              />
+            </Field>
+          </div>
         </section>
 
         {/* Plano e vigência */}
@@ -234,6 +270,7 @@ export default function AdminTenantDetail() {
   // Form de edição
   const [form, setForm] = useState({
     name: '', registeredPhone: '', slug: '', active: true,
+    email: '', document: '', documentType: '',
     planSlug: '', lifetime: false, expiryDays: 30,
   });
 
@@ -248,6 +285,9 @@ export default function AdminTenantDetail() {
           registeredPhone: t.registered_phone,
           slug: t.slug,
           active: t.active,
+          email: t.email || '',
+          document: t.document || '',
+          documentType: t.document_type || '',
           planSlug: t.plan_slug || 'starter',
           lifetime: Boolean(t.contract_id && !t.contract_expires_at),
           expiryDays: 30,
@@ -269,6 +309,9 @@ export default function AdminTenantDetail() {
         registeredPhone: form.registeredPhone,
         slug: form.slug,
         active: form.active,
+        email: form.email.trim(),
+        document: form.document,
+        documentType: form.documentType || null,
         planSlug: form.planSlug,
         lifetime: form.lifetime,
         expiryDays: form.lifetime ? 0 : form.expiryDays,
@@ -438,9 +481,14 @@ export default function AdminTenantDetail() {
             <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-white text-lg font-bold flex items-center justify-center">
               {t.name.slice(0, 2).toUpperCase()}
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">{t.name}</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold text-slate-900 truncate">{t.name}</h1>
               <p className="text-sm text-slate-500 font-mono">/{t.slug}</p>
+              {t.email && (
+                <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 truncate">
+                  <Mail className="w-3 h-3 shrink-0" />{t.email}
+                </p>
+              )}
             </div>
           </div>
 
