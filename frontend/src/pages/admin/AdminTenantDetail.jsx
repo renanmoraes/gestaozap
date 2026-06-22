@@ -429,36 +429,33 @@ export default function AdminTenantDetail() {
           <ArrowLeft className="w-4 h-4" />
           Voltar<span className="hidden sm:inline">&nbsp;para a lista de clientes</span>
         </button>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={load} className="btn-secondary text-sm gap-1.5" aria-label="Atualizar">
-            <RefreshCw className="w-4 h-4" /><span className="hidden sm:inline">Atualizar</span>
-          </button>
-          {!editing && (
-            <>
-              <button onClick={makeAffiliate} className="btn-secondary text-sm gap-1.5">
-                <Tag className="w-4 h-4" />Afiliado
-              </button>
-              <button onClick={resetPassword} className="btn-secondary text-sm gap-1.5">
-                <Mail className="w-4 h-4" />
-                Resetar senha
-              </button>
-              <button onClick={() => setEdit(true)} className="btn-secondary text-sm gap-1.5">
-                <Edit2 className="w-4 h-4" />Editar
-              </button>
-              <button
-                onClick={toggleActive}
-                className={`text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg font-medium ${
-                  t.active
-                    ? 'bg-red-50 border border-red-200 text-red-700 hover:bg-red-100'
-                    : 'bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                }`}
-              >
-                {t.active ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
-                {t.active ? 'Bloquear' : 'Reativar'}
-              </button>
-            </>
-          )}
-        </div>
+        {!editing && (
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+            <button onClick={() => setEdit(true)} className="btn-primary justify-center col-span-2 sm:col-span-1">
+              <Edit2 className="w-4 h-4" />Editar cliente
+            </button>
+            <button onClick={resetPassword} className="btn-secondary justify-center">
+              <Mail className="w-4 h-4" />Resetar senha
+            </button>
+            <button onClick={makeAffiliate} className="btn-secondary justify-center">
+              <Tag className="w-4 h-4" />Afiliado
+            </button>
+            <button
+              onClick={toggleActive}
+              className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                t.active
+                  ? 'bg-red-50 border border-red-200 text-red-700 hover:bg-red-100'
+                  : 'bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+              }`}
+            >
+              {t.active ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+              {t.active ? 'Bloquear' : 'Reativar'}
+            </button>
+            <button onClick={load} className="btn-secondary justify-center" aria-label="Atualizar">
+              <RefreshCw className="w-4 h-4" />Atualizar
+            </button>
+          </div>
+        )}
       </div>
 
       {editing && (
@@ -476,60 +473,51 @@ export default function AdminTenantDetail() {
       <>
       {/* Header card */}
       <div className="card p-4 sm:p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-white text-lg font-bold flex items-center justify-center">
-              {t.name.slice(0, 2).toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl font-bold text-slate-900 truncate">{t.name}</h1>
-              <p className="text-sm text-slate-500 font-mono">/{t.slug}</p>
-              {t.email && (
-                <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 truncate">
-                  <Mail className="w-3 h-3 shrink-0" />{t.email}
-                </p>
-              )}
-            </div>
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-white text-base sm:text-lg font-bold flex items-center justify-center shrink-0">
+            {t.name.slice(0, 2).toUpperCase()}
           </div>
-
-          <div className="flex flex-col items-end gap-1">
-            {t.active ? (
-              <span className="badge-green flex items-center gap-1.5">
-                <CheckCircle2 className="w-3 h-3" /> Ativo
-              </span>
-            ) : (
-              <span className="badge-red flex items-center gap-1.5">
-                <ShieldOff className="w-3 h-3" /> Bloqueado
-              </span>
-            )}
-            {t.wa_status === 'connected' ? (
-              <span className="badge-blue flex items-center gap-1.5">
-                <Wifi className="w-3 h-3" /> WhatsApp conectado
-              </span>
-            ) : (
-              <span className="badge-gray flex items-center gap-1.5">
-                <WifiOff className="w-3 h-3" /> WhatsApp desconectado
-              </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight break-words">{t.name}</h1>
+            <p className="text-sm text-slate-500 font-mono">/{t.slug}</p>
+            {t.email && (
+              <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 break-all">
+                <Mail className="w-3 h-3 shrink-0" />{t.email}
+              </p>
             )}
           </div>
         </div>
 
+        {/* Status badges */}
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          {t.active ? (
+            <span className="badge-green"><CheckCircle2 className="w-3 h-3" /> Ativo</span>
+          ) : (
+            <span className="badge-red"><ShieldOff className="w-3 h-3" /> Bloqueado</span>
+          )}
+          {t.wa_status === 'connected' ? (
+            <span className="badge-blue"><Wifi className="w-3 h-3" /> WhatsApp conectado</span>
+          ) : (
+            <span className="badge-gray"><WifiOff className="w-3 h-3" /> WhatsApp desconectado</span>
+          )}
+        </div>
+
         {/* Dados rápidos */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-100">
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Número cadastrado</div>
-            <div className="text-sm font-mono text-slate-800">{formatPhone(t.registered_phone)}</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mt-4 pt-4 border-t border-slate-100">
+          <div className="rounded-lg bg-slate-50 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Número</div>
+            <div className="text-sm font-mono text-slate-800 break-all">{formatPhone(t.registered_phone)}</div>
           </div>
-          <div>
+          <div className="rounded-lg bg-slate-50 p-3">
             <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Plano atual</div>
             <div className="text-sm text-slate-800">
               {t.plan_name || '—'}
               {t.price_brl && (
-                <span className="text-xs text-slate-400 ml-1">R$ {Number(t.price_brl).toFixed(2)}/mês</span>
+                <span className="block text-xs text-slate-400">R$ {Number(t.price_brl).toFixed(2)}/mês</span>
               )}
             </div>
           </div>
-          <div>
+          <div className="rounded-lg bg-slate-50 p-3">
             <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Vencimento</div>
             {isLifetime ? (
               <div className="text-sm text-emerald-700 font-semibold">♾️ Vitalício</div>
@@ -544,7 +532,7 @@ export default function AdminTenantDetail() {
               <div className="text-sm text-slate-400">Sem contrato</div>
             )}
           </div>
-          <div>
+          <div className="rounded-lg bg-slate-50 p-3">
             <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Criado em</div>
             <div className="text-sm text-slate-800">
               {formatDateBr(t.created_at)}
@@ -557,8 +545,8 @@ export default function AdminTenantDetail() {
 
         {!editing && t.affiliate_name && (
           <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2 text-xs text-slate-600">
-            <Tag className="w-3 h-3 text-brand-600" />
-            Indicado por <strong>{t.affiliate_name}</strong> · código <code className="font-mono">{t.affiliate_code}</code>
+            <Tag className="w-3 h-3 text-brand-600 shrink-0" />
+            <span className="break-words">Indicado por <strong>{t.affiliate_name}</strong> · código <code className="font-mono">{t.affiliate_code}</code></span>
           </div>
         )}
       </div>
@@ -623,20 +611,20 @@ export default function AdminTenantDetail() {
 
           {/* Termos */}
           <div className="card p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-slate-400" />
+                <FileText className="w-4 h-4 text-slate-400 shrink-0" />
                 <span className="text-sm font-medium text-slate-700">Aceite dos Termos</span>
               </div>
               {t.terms_accepted_at ? (
                 <div className="text-sm text-emerald-700 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
                   Aceito em {formatDateBr(t.terms_accepted_at)}
                   <span className="text-xs text-slate-400">(v{t.terms_version})</span>
                 </div>
               ) : (
                 <div className="text-sm text-amber-600 flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4" />
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
                   Ainda não aceitou
                 </div>
               )}
@@ -650,7 +638,7 @@ export default function AdminTenantDetail() {
         <div className="space-y-4">
           {/* Painel anti-bloqueio */}
           <div className={`card p-5 ${antiBlock?.killSwitch ? 'bg-red-50 border-red-200' : antiBlock?.qualityGateBreached ? 'bg-amber-50 border-amber-200' : ''}`}>
-            <div className="flex items-start justify-between mb-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-3">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 mb-1 flex items-center gap-2">
                   {antiBlock?.killSwitch ? <ShieldOff className="w-4 h-4 text-red-500" /> :
@@ -668,7 +656,7 @@ export default function AdminTenantDetail() {
               </div>
               <button
                 onClick={toggleKillSwitch}
-                className={`text-xs flex items-center gap-1.5 px-3 py-2 rounded-lg ${
+                className={`text-xs flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg w-full sm:w-auto shrink-0 ${
                   antiBlock?.killSwitch
                     ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
                     : 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200'
@@ -702,13 +690,13 @@ export default function AdminTenantDetail() {
           </div>
 
           <div className="card p-5">
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 mb-1">Sessão WhatsApp</h3>
                 <p className="text-xs text-slate-500">Estado da conexão e do dispositivo do cliente</p>
               </div>
               {t.wa_status === 'connected' && (
-                <button onClick={disconnectWa} className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 border border-red-200">
+                <button onClick={disconnectWa} className="text-xs flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 w-full sm:w-auto shrink-0">
                   <PowerOff className="w-3.5 h-3.5" />
                   Desconectar agora
                 </button>
