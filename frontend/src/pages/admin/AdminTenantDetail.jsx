@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Edit2, Save, X, Wifi, WifiOff, AlertTriangle, CheckCircle2,
   Smartphone, MessageSquare, Users, FileText, CreditCard, Calendar,
-  Shield, ShieldOff, PowerOff, Plus, Tag, Clock, Hash, Building2, RefreshCw, Sparkles,
+  Shield, ShieldOff, PowerOff, Plus, Tag, Clock, Hash, Building2, RefreshCw, Sparkles, Mail,
 } from 'lucide-react';
 import api from '../../api';
 import { dialog } from '../../utils/dialog';
@@ -147,6 +147,24 @@ export default function AdminTenantDetail() {
     }
   };
 
+  const resetPassword = async () => {
+    if (!(await dialog.confirm({
+      title: 'Resetar senha',
+      message: `Isso vai gerar uma nova senha temporária e enviar por email para ${data?.tenant?.email || 'o email cadastrado'}. O cliente precisará trocar a senha no próximo acesso. Confirmar?`,
+      danger: false,
+    }))) return;
+    try {
+      const { data: r } = await api.post(`/api/admin/tenants/${id}/reset-password`);
+      dialog.toast.success(
+        r.emailSent
+          ? `Senha resetada e email enviado para ${r.email}.`
+          : `Senha resetada, mas o email não foi enviado (${r.email}).`,
+      );
+    } catch (err) {
+      dialog.toast.error(apiErrorMessage(err, 'Não foi possível resetar a senha.'));
+    }
+  };
+
   const extendContract = async () => {
     const days = parseInt(prompt('Estender por quantos dias?', '30'));
     if (!days || days < 1) return;
@@ -211,6 +229,10 @@ export default function AdminTenantDetail() {
             <>
               <button onClick={makeAffiliate} className="btn-secondary text-sm gap-1.5">
                 <Tag className="w-4 h-4" />Afiliado
+              </button>
+              <button onClick={resetPassword} className="btn-secondary text-sm gap-1.5">
+                <Mail className="w-4 h-4" />
+                Resetar senha
               </button>
               <button onClick={() => setEdit(true)} className="btn-secondary text-sm gap-1.5">
                 <Edit2 className="w-4 h-4" />Editar

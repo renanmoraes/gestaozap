@@ -173,6 +173,43 @@ router.post('/terms', tenantResolver, requireAuth, async (req, res) => {
 });
 
 /**
+ * POST /api/auth/send-reset-email  — usuário logado solicita email com nova senha temp
+ */
+router.post('/send-reset-email', requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const { users } = require('../db/schema');
+    const { generateTempPassword, hashPassword } = require('../services/auth.service');
+    const { sendResetPasswordEmail } = require('../services/reset-password-email.service');
+
+    const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const tempPassword = generateTempPassword();
+    const passwordHash = await hashPassword(tempPassword);
+
+    await db.update(users)
+      .set({ passwordHash, mustChangePwd: true, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    const tenantName = req.authTenant?.name || req.company?.name || 'sua empresa';
+    const slug = req.authTenant?.slug || '';
+
+    const emailResult = await sendResetPasswordEmail({
+      to: user.email,
+      tempPassword,
+      tenantName,
+      slug,
+    }).catch((e) => ({ sent: false, reason: e.message }));
+
+    res.json({ ok: true, emailSent: emailResult.sent, email: user.email });
+  } catch (err) {
+    console.error('auth send-reset-email:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/auth/logout
  */
 router.post('/logout', async (req, res) => {

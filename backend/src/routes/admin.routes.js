@@ -1063,4 +1063,51 @@ router.post('/tenants/:id/features/:slug', async (req, res) => {
   }
 });
 
+/* POST /api/admin/tenants/:id/reset-password — envia nova senha temporária por email */
+router.post('/tenants/:id/reset-password', async (req, res) => {
+  try {
+    const db = getDb();
+    const tenantId = req.params.id;
+
+    // Busca email do owner do tenant
+    const ownerRow = await db.execute(sql`
+      SELECT u.id, u.email FROM users u
+      JOIN user_company uc ON uc.user_id = u.id
+      JOIN companies c ON c.id = uc.company_id
+      WHERE c.tenant_id = ${tenantId}
+      ORDER BY uc.created_at ASC
+      LIMIT 1
+    `).then((r) => r.rows[0]);
+
+    if (!ownerRow?.email) {
+      return res.status(404).json({ error: 'Nenhum usuário encontrado para este cliente' });
+    }
+
+    const { generateTempPassword, hashPassword } = require('../services/auth.service');
+    const { users } = require('../db/schema');
+
+    const tempPassword = generateTempPassword();
+    const passwordHash = await hashPassword(tempPassword);
+
+    await db.update(users)
+      .set({ passwordHash, mustChangePwd: true, updatedAt: new Date() })
+      .where(eq(users.id, ownerRow.id));
+
+    const { sendResetPasswordEmail } = require('../services/reset-password-email.service');
+    const [tenantRow] = await db.select({ name: tenants.name, slug: tenants.slug }).from(tenants).where(eq(tenants.id, tenantId));
+
+    const emailResult = await sendResetPasswordEmail({
+      to: ownerRow.email,
+      tempPassword,
+      tenantName: tenantRow?.name || 'sua empresa',
+      slug: tenantRow?.slug || '',
+    }).catch((e) => ({ sent: false, reason: e.message }));
+
+    res.json({ ok: true, email: ownerRow.email, emailSent: emailResult.sent });
+  } catch (err) {
+    console.error('admin reset-password:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
