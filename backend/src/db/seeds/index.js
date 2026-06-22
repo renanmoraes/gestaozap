@@ -61,32 +61,32 @@ async function seedPlatformConfig(pool) {
 async function seedAdminCompanyAndUser(pool) {
   const client = await pool.connect();
   try {
-    // Criar empresa admin (ID 0) vinculada ao tenant default
+    // Empresa admin (ID 0) — é SEMPRE só admin, NUNCA vinculada a um tenant de negócio.
+    // (O login trava company '0' fora do host admin; se um tenant de negócio apontar
+    // para ela, o cliente desse tenant fica preso na trava de admin.)
     const companyResult = await client.query(`
-      INSERT INTO companies (company_id, name, active, tenant_id)
-      VALUES ('0', 'GestãoZap - Administração', true, $1)
+      INSERT INTO companies (company_id, name, active)
+      VALUES ('0', 'GestãoZap - Administração', true)
       ON CONFLICT (company_id) DO NOTHING
       RETURNING id
-    `, [DEFAULT_TENANT_ID]);
+    `);
 
     let companyId = null;
     if (companyResult.rows.length > 0) {
       companyId = companyResult.rows[0].id;
       console.log('[db] empresa admin criada: ID 0');
     } else {
-      // Se já existe, garante o vínculo com o tenant default e pega o ID
-      const existingCompany = await client.query(`
-        UPDATE companies SET tenant_id = $1
-        WHERE company_id = '0' AND tenant_id IS DISTINCT FROM $1
+      // Garante que a empresa admin esteja desvinculada de qualquer tenant
+      const decoupled = await client.query(`
+        UPDATE companies SET tenant_id = NULL
+        WHERE company_id = '0' AND tenant_id IS NOT NULL
         RETURNING id
-      `, [DEFAULT_TENANT_ID]);
-      if (existingCompany.rows.length > 0) {
-        companyId = existingCompany.rows[0].id;
-        console.log('[db] empresa admin vinculada ao tenant default');
-      } else {
-        const row = await client.query(`SELECT id FROM companies WHERE company_id = '0'`);
-        companyId = row.rows[0]?.id;
+      `);
+      if (decoupled.rows.length > 0) {
+        console.log('[db] empresa admin desvinculada de tenant de negócio');
       }
+      const row = await client.query(`SELECT id FROM companies WHERE company_id = '0'`);
+      companyId = row.rows[0]?.id;
     }
 
     // Senha do admin vem de ADMIN_PASSWORD (env). Nunca hardcoded no repositório.
