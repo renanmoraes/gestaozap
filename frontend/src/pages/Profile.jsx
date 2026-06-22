@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   UserCircle, Upload, Trash2, Save, Loader2, KeyRound, ExternalLink,
-  MapPin, Shield, Lock, Sparkles, Building2, X,
+  MapPin, Shield, Lock, Sparkles, Building2, X, Mail,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../api';
@@ -63,6 +63,7 @@ export default function Profile() {
   const [emailEditing, setEmailEditing] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [emailPwdKey, setEmailPwdKey] = useState(0);
+  const [sendingReset, setSendingReset] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -124,6 +125,26 @@ export default function Profile() {
     setNewEmail(loginEmail);
     emailPassword.clear();
     setEmailPwdKey((k) => k + 1);
+  };
+
+  const sendResetEmail = async () => {
+    if (!(await dialog.confirm({
+      title: 'Redefinir senha por email',
+      message: 'Isso vai gerar uma nova senha temporária e enviar para o seu email de login. Você precisará trocar a senha no próximo acesso. Continuar?',
+    }))) return;
+    setSendingReset(true);
+    try {
+      const res = await api.post('/api/auth/send-reset-email');
+      dialog.toast.success(
+        res.data.emailSent
+          ? `Email de redefinição enviado para ${maskEmail(loginEmail)}.`
+          : 'Senha redefinida, mas o email não pôde ser enviado. Entre em contato com o suporte.',
+      );
+    } catch (err) {
+      dialog.toast.error(apiErrorMessage(err));
+    } finally {
+      setSendingReset(false);
+    }
   };
 
   const saveEmail = async () => {
@@ -348,6 +369,22 @@ export default function Profile() {
                 <KeyRound className="w-3.5 h-3.5" />
                 Alterar senha
               </Link>
+            </div>
+
+            <div className="profile-security-row">
+              <div>
+                <div className="profile-security-label">Redefinição por email</div>
+                <div className="profile-security-value text-xs text-stone-400">Envia nova senha temporária para o email cadastrado</div>
+              </div>
+              <button
+                type="button"
+                disabled={sendingReset}
+                onClick={sendResetEmail}
+                className="btn btn-secondary text-xs inline-flex items-center gap-1.5"
+              >
+                {sendingReset ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                Enviar por email
+              </button>
             </div>
 
             <div className="profile-security-row">
