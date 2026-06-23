@@ -102,11 +102,14 @@ export default function SendPage() {
   useEffect(() => {
     setPage(1);
     setContacts([]);
-    setSelection((s) => ({
-      ...EMPTY_SELECTION,
-      tagFilter: s.tagFilter,
-      search: s.search,
-    }));
+    // A seleção manual persiste ao trocar/limpar o filtro, permitindo filtrar e
+    // selecionar em várias etapas. Apenas o modo "todos filtrados" é reiniciado,
+    // pois ele é vinculado ao filtro atual (exclusões deixam de fazer sentido).
+    setSelection((s) => (
+      s.mode === 'all-filtered'
+        ? { ...EMPTY_SELECTION, tagFilter: s.tagFilter, search: s.search }
+        : s
+    ));
   }, [selection.tagFilter, searchDebounced]);
 
   useEffect(() => {
