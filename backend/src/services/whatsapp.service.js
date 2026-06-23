@@ -31,7 +31,7 @@ const WWEBJS_WAKE_TIMEOUT_MS = Number(process.env.WWEBJS_WAKE_TIMEOUT_MS) || 120
 // Fixa a versão do WhatsApp Web (webVersionCache). Sem pin, o WA Web pode servir
 // um build que o wwebjs não lê → "auth timeout"/QR não aparece. Trocar por env
 // WWEBJS_WEB_VERSION (vazio = sem pin, usa a versão que o WA Web servir).
-const WWEBJS_WEB_VERSION = process.env.WWEBJS_WEB_VERSION === '' ? '' : (process.env.WWEBJS_WEB_VERSION || '2.3000.1041976118-alpha');
+const WWEBJS_WEB_VERSION = process.env.WWEBJS_WEB_VERSION || '';
 
 /* ─── Estado por tenant ──────────────────────────────────────── */
 
