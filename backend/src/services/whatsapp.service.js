@@ -483,7 +483,10 @@ function initWhatsApp(tenantId, io, opts = {}) {
   });
 
   client.initialize().catch(async (err) => {
-    console.error(`[wa] init error tenant=${tenantId}:`, err.message);
+    // Log completo: o .message às vezes vem undefined e esconde a causa real
+    // (incompatibilidade wwebjs<->WA Web, timeout de protocolo, target fechado…).
+    const detail = (err && (err.stack || err.message)) || (() => { try { return JSON.stringify(err); } catch (_) { return String(err); } })();
+    console.error(`[wa] init error tenant=${tenantId}:`, detail);
     state.status = 'disconnected';
     rejectReadyWaiters(state, err);
     await destroyClient(tenantId, { cooldown: true });
