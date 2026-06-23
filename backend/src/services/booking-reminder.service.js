@@ -203,7 +203,11 @@ async function sendJobWhatsApp(ctx, job) {
   if (!phone) return { sent: false, reason: 'PHONE_INVALID' };
 
   const whatsapp = require('./whatsapp.service');
-  if (whatsapp.getStatus(booking.tenantId) !== 'connected') {
+  // Sessões sobem sob demanda: acorda a sessão (cache do LocalAuth) antes de
+  // enviar o lembrete, em vez de pular quando ela está ociosa/derrubada.
+  try {
+    await whatsapp.ensureConnected(booking.tenantId);
+  } catch (_) {
     return { sent: false, reason: 'WA_DISCONNECTED' };
   }
 

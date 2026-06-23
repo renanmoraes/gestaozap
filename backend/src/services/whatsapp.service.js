@@ -17,6 +17,18 @@ const CHAT_INDEX_EARLY_STOP = !/^0|false|no$/i.test(String(process.env.WWEBJS_CH
 const WWEBJS_DATA_PATH = path.resolve(process.env.WWEBJS_AUTH_PATH || '.wwebjs_auth');
 const CHROME_LOCK_NAMES = new Set(['SingletonLock', 'SingletonSocket', 'SingletonCookie']);
 
+// Puppeteer protocolTimeout: o init/sync de contas grandes (muitos contatos) estoura
+// o default de 180s ("Runtime.callFunctionOn timed out"). Subimos para 5min.
+const WWEBJS_PROTOCOL_TIMEOUT_MS = Number(process.env.WWEBJS_PROTOCOL_TIMEOUT_MS) || 300000;
+// Cooldown após uma falha de init/disconnect — evita relançar Chrome em loop (tempestade de OOM).
+const WWEBJS_INIT_COOLDOWN_MS = Number(process.env.WWEBJS_INIT_COOLDOWN_MS) || 20000;
+// Teardown de sessão ociosa: derruba o Chrome após inatividade para liberar RAM.
+// Religa sob demanda (ensureConnected) usando o cache do LocalAuth (sem QR).
+const WWEBJS_IDLE_MS = Number(process.env.WWEBJS_IDLE_MS) || 600000; // 10 min
+const WWEBJS_IDLE_SWEEP_MS = Number(process.env.WWEBJS_IDLE_SWEEP_MS) || 60000; // varre a cada 1 min
+// Timeout para acordar uma sessão sob demanda antes de enviar.
+const WWEBJS_WAKE_TIMEOUT_MS = Number(process.env.WWEBJS_WAKE_TIMEOUT_MS) || 120000;
+
 /* ─── Estado por tenant ──────────────────────────────────────── */
 
 /**
@@ -34,6 +46,101 @@ function getTenantState(tenantId) {
 
 function getClientFor(tenantId) {
   return getTenantState(tenantId).client;
+}
+
+/* ─── Ciclo de vida da sessão (anti-OOM) ─────────────────────── */
+
+// Referência ao socket.io, capturada no boot. Permite acordar sessões sob
+// demanda (ensureConnected) sem precisar receber `io` em toda chamada.
+let ioRef = null;
+function setIo(io) { ioRef = io; }
+
+function markActivity(tenantId) {
+  getTenantState(tenantId).lastActivityAt = Date.now();
+}
+
+function resolveReadyWaiters(state, client) {
+  const waiters = state.readyWaiters || [];
+  state.readyWaiters = [];
+  for (const w of waiters) { try { clearTimeout(w.timer); } catch (_) {} try { w.resolve(client); } catch (_) {} }
+}
+
+function rejectReadyWaiters(state, err) {
+  const waiters = state.readyWaiters || [];
+  state.readyWaiters = [];
+  for (const w of waiters) { try { clearTimeout(w.timer); } catch (_) {} try { w.reject(err); } catch (_) {} }
+}
+
+/**
+ * Destrói o cliente (fecha o Chrome do Puppeteer) e libera o estado.
+ * CRÍTICO: sem isso, cada disconnect/erro deixava um Chrome órfão vivo,
+ * acumulando processos até estourar a RAM da VPS (OOM-kill).
+ * `cooldown` agenda um intervalo antes de permitir novo init (anti-loop).
+ */
+async function destroyClient(tenantId, { cooldown = false } = {}) {
+  const state = getTenantState(tenantId);
+  const client = state.client;
+  state.client = null;
+  state.initializing = false;
+  if (cooldown) state.cooldownUntil = Date.now() + WWEBJS_INIT_COOLDOWN_MS;
+  if (client) {
+    try { await client.destroy(); } catch (_) { /* já morto/derrubado */ }
+  }
+}
+
+/**
+ * Garante uma sessão conectada sob demanda. Se já está conectada, retorna o
+ * client. Caso contrário, inicia (guardado/single-flight) e espera o `ready`
+ * — usando o cache do LocalAuth, sem QR. Usado pelo envio para "acordar"
+ * sessões que foram derrubadas por ociosidade.
+ */
+async function ensureConnected(tenantId) {
+  const state = getTenantState(tenantId);
+  markActivity(tenantId);
+  if (state.client && state.status === 'connected') return state.client;
+  if (!ioRef) throw new Error('WhatsApp não conectado');
+
+  state.readyWaiters = state.readyWaiters || [];
+  const p = new Promise((resolve, reject) => {
+    const waiter = { resolve, reject };
+    waiter.timer = setTimeout(() => {
+      const i = state.readyWaiters.indexOf(waiter);
+      if (i >= 0) state.readyWaiters.splice(i, 1);
+      reject(new Error('WhatsApp não conectou a tempo (timeout ao acordar a sessão)'));
+    }, WWEBJS_WAKE_TIMEOUT_MS);
+    state.readyWaiters.push(waiter);
+  });
+
+  // Pedido explícito de envio: ignora o cooldown de falha para acordar agora.
+  state.cooldownUntil = 0;
+  initWhatsApp(tenantId, ioRef);
+  const client = await p;
+  markActivity(tenantId);
+  return client;
+}
+
+let idleSweeperTimer = null;
+/**
+ * Varre periodicamente as sessões e derruba o Chrome das que estão ociosas
+ * há mais de WWEBJS_IDLE_MS, liberando RAM. Religam sob demanda no próximo envio.
+ */
+function startIdleSweeper(io) {
+  if (io) setIo(io);
+  if (idleSweeperTimer) return;
+  idleSweeperTimer = setInterval(async () => {
+    const now = Date.now();
+    for (const [tenantId, state] of tenantClients.entries()) {
+      const idleFor = state.lastActivityAt ? now - state.lastActivityAt : Infinity;
+      if (state.client && state.status === 'connected' && idleFor > WWEBJS_IDLE_MS) {
+        console.log(`[wa-idle] derrubando sessão ociosa tenant=${tenantId} (ocioso ${Math.round(idleFor / 1000)}s)`);
+        await destroyClient(tenantId).catch(() => {});
+        state.status = 'disconnected';
+        await persistWaStatus(tenantId, 'disconnected', null).catch(() => {});
+        try { ioRef && ioRef.to(tenantId).emit('session:status', { status: 'disconnected' }); } catch (_) {}
+      }
+    }
+  }, WWEBJS_IDLE_SWEEP_MS);
+  if (idleSweeperTimer.unref) idleSweeperTimer.unref();
 }
 
 /* ─── Helpers ────────────────────────────────────────────────── */
@@ -112,8 +219,13 @@ async function persistWaStatus(tenantId, status, connectedPhone = null) {
 /* ─── Init WhatsApp ──────────────────────────────────────────── */
 
 function initWhatsApp(tenantId, io) {
+  if (io) setIo(io);
   const state = getTenantState(tenantId);
-  if (state.client) return; // já inicializado para este tenant
+  if (state.client || state.initializing) return; // já inicializado/inicializando (single-flight)
+  if (state.cooldownUntil && Date.now() < state.cooldownUntil) return; // backoff após falha (anti-loop)
+
+  state.initializing = true;
+  markActivity(tenantId);
 
   // clientId isola sessão de cada tenant: .wwebjs_auth/session-{tenantId}/
   const sessionDir = path.join(WWEBJS_DATA_PATH, `session-${tenantId}`);
@@ -123,6 +235,7 @@ function initWhatsApp(tenantId, io) {
     authStrategy: new LocalAuth({ dataPath: WWEBJS_DATA_PATH, clientId: tenantId }),
     puppeteer: {
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      protocolTimeout: WWEBJS_PROTOCOL_TIMEOUT_MS,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -130,6 +243,12 @@ function initWhatsApp(tenantId, io) {
         '--disable-background-networking',
         '--disable-extensions',
         '--disable-features=TranslateUI',
+        '--disable-gpu',
+        '--no-zygote',
+        '--disable-software-rasterizer',
+        '--disable-accelerated-2d-canvas',
+        '--renderer-process-limit=1',
+        '--js-flags=--max-old-space-size=512',
       ],
     },
   });
@@ -167,9 +286,9 @@ function initWhatsApp(tenantId, io) {
         };
         if (registered && connectedPhone && !matchesPhone(registered, connectedPhone)) {
           console.warn(`[wa] número errado para tenant ${tenantId}: conectado=${connectedPhone} esperado=${registered}`);
-          await client.destroy().catch(() => {});
-          state.client = null;
           state.status = 'disconnected';
+          rejectReadyWaiters(state, new Error('número errado'));
+          await destroyClient(tenantId);
           await persistWaStatus(tenantId, 'disconnected', null);
           const fmt = (p) => {
             const d = String(p || '').replace(/\D/g, '');
@@ -188,7 +307,12 @@ function initWhatsApp(tenantId, io) {
       }
 
       state.status = 'connected';
+      state.initializing = false;
+      state.cooldownUntil = 0;
+      state.consecutiveFailures = 0;
+      markActivity(tenantId);
       await persistWaStatus(tenantId, 'connected', connectedPhone);
+      resolveReadyWaiters(state, client);
       io.to(tenantId).emit('session:ready');
       io.to(tenantId).emit('session:status', { status: 'connected' });
       try { require('./metrics.service').recordClientEvent(tenantId, 'ready'); } catch (_) {}
@@ -211,26 +335,27 @@ function initWhatsApp(tenantId, io) {
 
   client.on('auth_failure', async (message) => {
     state.status = 'disconnected';
-    state.client = null;
+    rejectReadyWaiters(state, new Error(`auth_failure: ${message}`));
+    await destroyClient(tenantId, { cooldown: true });
     await persistWaStatus(tenantId, 'disconnected', null);
     io.to(tenantId).emit('session:auth_failure', { message });
     try { require('./metrics.service').recordClientEvent(tenantId, 'auth_failure'); } catch (_) {}
     try { require('./incidents.service').record(tenantId, io, 'wa_auth_failure', 'critical', { message }); } catch (_) {}
-    tenantClients.delete(tenantId);
   });
 
   client.on('disconnected', async (reason) => {
     state.status = 'disconnected';
-    state.client = null;
+    rejectReadyWaiters(state, new Error(`disconnected: ${String(reason)}`));
+    await destroyClient(tenantId, { cooldown: true });
     await persistWaStatus(tenantId, 'disconnected', null);
     io.to(tenantId).emit('session:disconnected');
     io.to(tenantId).emit('session:status', { status: 'disconnected' });
     try { require('./metrics.service').recordClientEvent(tenantId, 'disconnected'); } catch (_) {}
     try { require('./incidents.service').record(tenantId, io, 'wa_disconnected', 'warning', { reason: String(reason) }); } catch (_) {}
-    tenantClients.delete(tenantId);
   });
 
   client.on('message', async (msg) => {
+    markActivity(tenantId);
     if (msg.fromMe) return;
 
     // ─── Persistir TODA mensagem inbound na timeline de conversas (DMs + grupos) ───
@@ -357,13 +482,13 @@ function initWhatsApp(tenantId, io) {
     }
   });
 
-  client.initialize().catch((err) => {
+  client.initialize().catch(async (err) => {
     console.error(`[wa] init error tenant=${tenantId}:`, err.message);
     state.status = 'disconnected';
-    state.client = null;
+    rejectReadyWaiters(state, err);
+    await destroyClient(tenantId, { cooldown: true });
     io.to(tenantId).emit('session:error', { message: err.message });
     io.to(tenantId).emit('session:status', { status: 'disconnected' });
-    tenantClients.delete(tenantId);
   });
 }
 
@@ -541,8 +666,10 @@ async function getSendCandidates(client, phone) {
 }
 
 async function sendMessage(tenantId, phone, message, imagePath, opts = {}) {
-  const { client, status } = getTenantState(tenantId);
-  if (!client || status !== 'connected') throw new Error('WhatsApp não conectado');
+  // Acorda a sessão sob demanda (pode ter sido derrubada por ociosidade).
+  // Se já está conectada, retorna na hora; senão religa via cache do LocalAuth.
+  const client = await ensureConnected(tenantId);
+  markActivity(tenantId);
 
   const { MessageMedia } = require('whatsapp-web.js');
 
@@ -1013,6 +1140,10 @@ async function autoReconnectSessions(io) {
 
 module.exports = {
   initWhatsApp,
+  ensureConnected,
+  startIdleSweeper,
+  setIo,
+  destroyClient,
   getStatus,
   getClientFor,
   getTenantState: getTenantStateForAdmin,

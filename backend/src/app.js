@@ -151,11 +151,15 @@ if (require.main === module) {
     scheduleBookingReminderJobs();
     server.listen(PORT, () => console.log(`Backend running on :${PORT}`));
 
-    // Auto-restaura sessões WhatsApp que estavam ativas (usa cache do LocalAuth).
-    // Roda 3s depois do boot para garantir que tudo está pronto.
+    // Sessões WhatsApp agora sobem SOB DEMANDA (no primeiro envio), não todas no
+    // boot — evita segurar vários Chrome pesados em memória ao mesmo tempo (OOM).
+    // O sweeper derruba sessões ociosas para liberar RAM; religam via cache do
+    // LocalAuth (sem QR) quando houver envio. Mensagens recebidas só chegam com a
+    // sessão acordada (trade-off aceito).
     setTimeout(() => {
-      const { autoReconnectSessions } = require('./services/whatsapp.service');
-      autoReconnectSessions(io);
+      const wa = require('./services/whatsapp.service');
+      wa.setIo(io);
+      wa.startIdleSweeper(io);
     }, 3000);
   });
 }
