@@ -14,7 +14,7 @@ router.get('/', (req, res) => {
 router.post('/start', (req, res) => {
   const io = req.app.get('io');
   const tenantId = getTenantId(req);
-  whatsapp.initWhatsApp(tenantId, io);
+  whatsapp.initWhatsApp(tenantId, io, { force: true });
   res.json({ message: 'Inicialização do WhatsApp iniciada' });
 });
 

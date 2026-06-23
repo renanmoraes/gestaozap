@@ -113,7 +113,7 @@ async function ensureConnected(tenantId) {
 
   // Pedido explícito de envio: ignora o cooldown de falha para acordar agora.
   state.cooldownUntil = 0;
-  initWhatsApp(tenantId, ioRef);
+  initWhatsApp(tenantId, ioRef, { force: true });
   const client = await p;
   markActivity(tenantId);
   return client;
@@ -218,11 +218,13 @@ async function persistWaStatus(tenantId, status, connectedPhone = null) {
 
 /* ─── Init WhatsApp ──────────────────────────────────────────── */
 
-function initWhatsApp(tenantId, io) {
+function initWhatsApp(tenantId, io, opts = {}) {
   if (io) setIo(io);
   const state = getTenantState(tenantId);
   if (state.client || state.initializing) return; // já inicializado/inicializando (single-flight)
-  if (state.cooldownUntil && Date.now() < state.cooldownUntil) return; // backoff após falha (anti-loop)
+  // Ação manual do usuário / envio (force) ignora o cooldown de backoff — senão
+  // a tela de Sessão pode ficar presa sem QR logo após uma queda.
+  if (!opts.force && state.cooldownUntil && Date.now() < state.cooldownUntil) return;
 
   state.initializing = true;
   markActivity(tenantId);
@@ -235,7 +237,11 @@ function initWhatsApp(tenantId, io) {
     authStrategy: new LocalAuth({ dataPath: WWEBJS_DATA_PATH, clientId: tenantId }),
     puppeteer: {
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      protocolTimeout: WWEBJS_PROTOCOL_TIMEOUT_MS,
+      // Flags comprovadamente estáveis (config original). NÃO usar --no-zygote,
+      // --renderer-process-limit nem --js-flags=--max-old-space-size: estrangulam
+      // o renderer do WhatsApp Web e causam "detached Frame"/navigation no login.
+      // A economia de RAM vem do fim do vazamento + sessão sob demanda, não de
+      // capar um único Chrome.
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -243,12 +249,6 @@ function initWhatsApp(tenantId, io) {
         '--disable-background-networking',
         '--disable-extensions',
         '--disable-features=TranslateUI',
-        '--disable-gpu',
-        '--no-zygote',
-        '--disable-software-rasterizer',
-        '--disable-accelerated-2d-canvas',
-        '--renderer-process-limit=1',
-        '--js-flags=--max-old-space-size=512',
       ],
     },
   });
