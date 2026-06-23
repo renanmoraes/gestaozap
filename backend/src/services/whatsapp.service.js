@@ -28,6 +28,10 @@ const WWEBJS_IDLE_MS = Number(process.env.WWEBJS_IDLE_MS) || 600000; // 10 min
 const WWEBJS_IDLE_SWEEP_MS = Number(process.env.WWEBJS_IDLE_SWEEP_MS) || 60000; // varre a cada 1 min
 // Timeout para acordar uma sessão sob demanda antes de enviar.
 const WWEBJS_WAKE_TIMEOUT_MS = Number(process.env.WWEBJS_WAKE_TIMEOUT_MS) || 120000;
+// Fixa a versão do WhatsApp Web (webVersionCache). Sem pin, o WA Web pode servir
+// um build que o wwebjs não lê → "auth timeout"/QR não aparece. Trocar por env
+// WWEBJS_WEB_VERSION (vazio = sem pin, usa a versão que o WA Web servir).
+const WWEBJS_WEB_VERSION = process.env.WWEBJS_WEB_VERSION === '' ? '' : (process.env.WWEBJS_WEB_VERSION || '2.3000.1041976118-alpha');
 
 /* ─── Estado por tenant ──────────────────────────────────────── */
 
@@ -235,6 +239,13 @@ function initWhatsApp(tenantId, io, opts = {}) {
 
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: WWEBJS_DATA_PATH, clientId: tenantId }),
+    ...(WWEBJS_WEB_VERSION ? {
+      webVersion: WWEBJS_WEB_VERSION,
+      webVersionCache: {
+        type: 'remote',
+        remotePath: `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WWEBJS_WEB_VERSION}.html`,
+      },
+    } : {}),
     puppeteer: {
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       // Flags comprovadamente estáveis (config original). NÃO usar --no-zygote,
