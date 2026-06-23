@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Wifi, WifiOff, Loader2, RefreshCw, Send, CheckCircle2, AlertCircle, QrCode, PhoneOff } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { useTenant } from '../context/TenantContext';
@@ -29,11 +29,22 @@ export default function Session() {
   const [testing, setTesting] = useState(false);
   const [testFeedback, setTestFeedback] = useState(null);
 
-  useEffect(() => {
-    api.get('/api/session').then((r) => setStatus(r.data.status));
+  // Busca o status real no backend. É a fonte da verdade: usada no mount e
+  // sempre que o socket (re)conecta para reconciliar eventos perdidos.
+  const syncStatus = useCallback(() => {
+    api.get('/api/session')
+      .then((r) => setStatus(r.data.status))
+      .catch(() => {});
   }, []);
 
+  useEffect(() => { syncStatus(); }, [syncStatus]);
+
   useSocket({
+    // Reconcilia ao (re)conectar: um evento one-shot como `session:ready` pode
+    // se perder durante uma reconexão do socket (ex.: backend reiniciou), o que
+    // deixava a tela presa em "Aguardando QR" sem QR e sem botão. Re-buscar o
+    // status no connect auto-corrige, sem precisar de reload manual.
+    connect: syncStatus,
     qr: ({ qr: q }) => { setQr(q); setStatus('qr_ready'); setError(null); },
     'session:ready': () => { setStatus('connected'); setQr(null); setError(null); },
     'session:disconnected': () => { setStatus('disconnected'); setQr(null); },
