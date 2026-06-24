@@ -406,7 +406,10 @@ async function fetchAvatars(tenantId, chatIds) {
       if (r.waChatId) candidates.push(r.waChatId);
       let url = null;
       for (const jid of candidates) {
-        try { url = await client.getProfilePicUrl(jid); } catch (_) { /* segue p/ próximo */ }
+        try {
+          url = await client.getProfilePicUrl(jid);
+          console.log(`[avatar-debug] ${jid} -> ${url ? 'OK' : 'null'}`);
+        } catch (e) { console.warn(`[avatar-debug] ${jid} ERROR: ${e.message}`); }
         if (url) break;
       }
       if (url) {
