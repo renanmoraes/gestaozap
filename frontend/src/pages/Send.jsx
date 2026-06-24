@@ -59,6 +59,9 @@ export default function SendPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [sendConfig, setSendConfig] = useState(null);
   const [activeDispatches, setActiveDispatches] = useState({});
+  // Janela segura (dias) p/ bloquear reseleção de contato já enviado. Vem do backend
+  // (config 'resend_safe_days', editável no admin); 30 é só o fallback inicial.
+  const [resendSafeDays, setResendSafeDays] = useState(30);
 
   useEffect(() => {
     api.get('/api/campaigns').then((r) => setCampaigns(r.data));
@@ -92,6 +95,7 @@ export default function SendPage() {
       setContacts((prev) => (append ? [...prev, ...items] : items));
       setTotalEligible(res.data.total ?? 0);
       setAllTags(res.data.tags || []);
+      if (res.data.resendSafeDays != null) setResendSafeDays(res.data.resendSafeDays);
     } finally {
       loadingRef.current = false;
       setLoadingList(false);
@@ -195,6 +199,22 @@ export default function SendPage() {
     isAllFiltered ? !selection.excludeIds.has(id) : selection.contactIds.has(id)
   );
 
+  // Contato enviado dentro da janela segura → não pode ser reselecionado.
+  // Retorna null se livre, ou { badge, tooltip } se bloqueado.
+  const getSendBlock = (c) => {
+    if (!c.lastSentAt || resendSafeDays <= 0) return null;
+    const sentMs = new Date(c.lastSentAt).getTime();
+    if (!Number.isFinite(sentMs)) return null;
+    const daysSince = Math.floor((Date.now() - sentMs) / 86_400_000);
+    if (daysSince >= resendSafeDays) return null; // fora da janela: liberado
+    const releasesIn = Math.max(1, resendSafeDays - daysSince);
+    const ago = daysSince <= 0 ? 'hoje' : `há ${daysSince} dia${daysSince > 1 ? 's' : ''}`;
+    return {
+      badge: daysSince <= 0 ? 'enviado hoje' : `enviado ${daysSince}d`,
+      tooltip: `Não pode selecionar: enviado ${ago}. Liberado para reenvio em ${releasesIn} dia${releasesIn > 1 ? 's' : ''} (janela segura de ${resendSafeDays} dias).`,
+    };
+  };
+
   const toggleContact = (id) => {
     setSelection((s) => {
       if (s.mode === 'all-filtered') {
@@ -217,7 +237,7 @@ export default function SendPage() {
   const selectPage = () => {
     setSelection((s) => {
       const next = new Set(s.contactIds);
-      contacts.filter((c) => !c.optedOut).forEach((c) => next.add(c._id));
+      contacts.filter((c) => !c.optedOut && !getSendBlock(c)).forEach((c) => next.add(c._id));
       return { ...s, mode: 'manual', contactIds: next, excludeIds: new Set() };
     });
   };
@@ -455,7 +475,7 @@ export default function SendPage() {
                     Selecionar todos ({totalEligible.toLocaleString('pt-BR')})
                   </button>
                   <button type="button" onClick={selectPage} disabled={!contacts.length} className="btn-secondary py-1.5 px-3 text-xs">
-                    Página visível ({contacts.filter((c) => !c.optedOut).length})
+                    Página visível ({contacts.filter((c) => !c.optedOut && !getSendBlock(c)).length})
                   </button>
                   <button type="button" onClick={clearSelection} disabled={!selectedCount} className="btn-secondary py-1.5 px-3 text-xs">
                     <Square className="w-3.5 h-3.5" />
@@ -485,25 +505,32 @@ export default function SendPage() {
                     Nenhum contato encontrado para este filtro.
                   </div>
                 ) : contacts.map((c) => {
-                  const checked = isContactChecked(c._id);
+                  const block = getSendBlock(c);
+                  const blocked = !!block;
+                  const disabled = c.optedOut || blocked;
+                  const checked = isContactChecked(c._id) && !disabled;
                   return (
                     <label
                       key={c._id}
-                      className={`flex items-center gap-3 px-5 py-2.5 cursor-pointer transition-colors ${checked ? 'bg-brand-50/40' : 'hover:bg-slate-50'} ${c.optedOut ? 'opacity-50' : ''}`}
+                      title={blocked ? block.tooltip : undefined}
+                      className={`flex items-center gap-3 px-5 py-2.5 transition-colors ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${checked ? 'bg-brand-50/40' : 'hover:bg-slate-50'} ${disabled ? 'opacity-60' : ''}`}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => !c.optedOut && toggleContact(c._id)}
-                        disabled={c.optedOut}
-                        className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                        onChange={() => !disabled && toggleContact(c._id)}
+                        disabled={disabled}
+                        className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-slate-900 truncate">{c.name}</div>
                         <div className="text-xs text-slate-400">{c.phone}</div>
                       </div>
                       {c.optedOut && <span className="badge-red text-xs">opt-out</span>}
-                      {c.tags?.length > 0 && !c.optedOut && (
+                      {blocked && !c.optedOut && (
+                        <span title={block.tooltip} className="badge-yellow text-xs whitespace-nowrap">{block.badge}</span>
+                      )}
+                      {c.tags?.length > 0 && !c.optedOut && !blocked && (
                         <div className="flex gap-1 shrink-0">
                           {c.tags.slice(0, 2).map((t) => (
                             <span key={t} className="badge-gray">{t}</span>
