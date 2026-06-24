@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api';
 import { dialog } from '../utils/dialog';
 import { apiErrorMessage, MSG } from '../utils/messages';
 import { useSocket } from './useSocket';
+import { useTenant } from '../context/TenantContext';
 
 /**
  * Hook para gerenciar a lista de conversas.
@@ -15,6 +16,8 @@ export function useChats({ search = '', tag = null, onlyUnread = false } = {}) {
   const [hasMore, setHasMore]   = useState(false);
   const [nextCursor, setNext]   = useState(null);
   const [sync, setSync]         = useState({ active: false, done: 0, total: 0 });
+  const { waStatus }            = useTenant();
+  const avatarTriedRef          = useRef(new Set());
 
   const fetchPage = useCallback(async (cursor = null) => {
     setLoading(true);
@@ -83,6 +86,9 @@ export function useChats({ search = '', tag = null, onlyUnread = false } = {}) {
         c.id === conversationId ? { ...c, unread_count: 0, unreadCount: 0 } : c,
       ));
     },
+    'chat:read_all': () => {
+      setItems((prev) => prev.map((c) => ({ ...c, unread_count: 0, unreadCount: 0 })));
+    },
     'chat:tags_changed': ({ conversationId, tags }) => {
       setItems((prev) => prev.map((c) =>
         c.id === conversationId ? { ...c, tags } : c,
@@ -103,6 +109,26 @@ export function useChats({ search = '', tag = null, onlyUnread = false } = {}) {
       fetchPage(null);
     },
   });
+
+  // Busca sob demanda as fotos de perfil que faltam — só com a sessão conectada
+  // (o backend precisa dela viva). Cada conversa é tentada uma vez por sessão.
+  useEffect(() => {
+    if (waStatus !== 'connected') return;
+    const missing = items
+      .filter((c) => !(c.avatarUrl || c.avatar_url) && !avatarTriedRef.current.has(c.id))
+      .map((c) => c.id);
+    if (!missing.length) return;
+    missing.forEach((id) => avatarTriedRef.current.add(id));
+    api.post('/api/chats/avatars', { chatIds: missing.slice(0, 60) })
+      .then((r) => {
+        const avatars = r.data?.avatars || {};
+        if (!Object.keys(avatars).length) return;
+        setItems((prev) => prev.map((c) => (
+          avatars[c.id] ? { ...c, avatarUrl: avatars[c.id], avatar_url: avatars[c.id] } : c
+        )));
+      })
+      .catch(() => {});
+  }, [items, waStatus]);
 
   const triggerSync = useCallback(async () => {
     try {

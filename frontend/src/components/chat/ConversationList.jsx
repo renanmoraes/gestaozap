@@ -1,9 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Inbox, MessageCircle, Filter, X, RefreshCw, Loader2 } from 'lucide-react';
+import { Search, Inbox, MessageCircle, Filter, X, RefreshCw, Loader2, CheckCheck } from 'lucide-react';
 import ConversationItem from './ConversationItem';
 
-export default function ConversationList({ conversations, loading, selectedId, onSelect, search, setSearch, tag, setTag, onlyUnread, setOnlyUnread, sync, onSync }) {
+export default function ConversationList({ conversations, loading, selectedId, onSelect, search, setSearch, tag, setTag, onlyUnread, setOnlyUnread, sync, onSync, onMarkAllRead }) {
   const [showFilters, setShowFilters] = useState(false);
+
+  const hasUnread = useMemo(
+    () => conversations.some((c) => (c.unread_count ?? c.unreadCount ?? 0) > 0),
+    [conversations],
+  );
 
   const allTags = useMemo(() => {
     const s = new Set();
@@ -21,6 +26,14 @@ export default function ConversationList({ conversations, loading, selectedId, o
             <h1 className="text-base font-semibold text-slate-900">Conversas</h1>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={onMarkAllRead}
+              disabled={!hasUnread}
+              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-brand-600 disabled:opacity-40 disabled:hover:bg-transparent"
+              title="Marcar todas como lidas"
+            >
+              <CheckCheck className="w-4 h-4" />
+            </button>
             <button
               onClick={onSync}
               disabled={sync?.active}

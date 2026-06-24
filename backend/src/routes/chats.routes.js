@@ -61,6 +61,39 @@ router.get('/', async (req, res) => {
   }
 });
 
+/* GET /api/chats/unread-count — total de não lidas (badge da aba) */
+router.get('/unread-count', async (req, res) => {
+  try {
+    const count = await conversationService.getUnreadTotal(getTenantId(req));
+    res.json({ count });
+  } catch (err) {
+    console.error('chats unread-count:', err);
+    res.status(500).json({ count: 0 });
+  }
+});
+
+/* POST /api/chats/read-all — marca todas as conversas como lidas */
+router.post('/read-all', async (req, res) => {
+  try {
+    const count = await conversationService.markAllRead(getTenantId(req), getIo());
+    res.json({ ok: true, count });
+  } catch (err) {
+    console.error('chats read-all:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* POST /api/chats/avatars — busca fotos de perfil sob demanda { chatIds: [] } */
+router.post('/avatars', async (req, res) => {
+  try {
+    const avatars = await conversationService.fetchAvatars(getTenantId(req), req.body?.chatIds);
+    res.json({ avatars });
+  } catch (err) {
+    console.error('chats avatars:', err);
+    res.json({ avatars: {} });
+  }
+});
+
 /* POST /api/chats/by-phone — abre/resolve conversa por número */
 router.post('/by-phone', async (req, res) => {
   try {

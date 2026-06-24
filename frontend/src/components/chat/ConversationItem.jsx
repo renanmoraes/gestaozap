@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { formatPhone } from '../../utils/phone';
 import { formatRelativeChatTime } from '../../utils/timezone';
 import { Check, CheckCheck, Users } from 'lucide-react';
@@ -33,9 +33,10 @@ function relativeTime(ts) {
 
 export default function ConversationItem({ conversation, active, onClick }) {
   const c = conversation;
+  const [imgError, setImgError] = useState(false);
   const isGroup = Boolean(c.isGroup ?? c.is_group);
   const name = c.contactName || c.contact_name || (isGroup ? 'Grupo sem nome' : formatPhone(c.phone));
-  const avatar = c.avatarUrl || c.avatar_url;
+  const avatar = (c.avatarUrl || c.avatar_url) && !imgError ? (c.avatarUrl || c.avatar_url) : null;
   const unread = Number(c.unreadCount ?? c.unread_count ?? 0);
   const preview = c.lastMessagePreview || c.last_message_preview || 'Sem mensagens ainda';
   const lastAt = c.lastMessageAt || c.last_message_at;
@@ -57,7 +58,7 @@ export default function ConversationItem({ conversation, active, onClick }) {
             src={avatar}
             alt={name}
             className="w-full h-full object-cover"
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            onError={() => setImgError(true)}
           />
         ) : isGroup ? <Users className="w-5 h-5" /> : initialsOf(name)}
       </div>

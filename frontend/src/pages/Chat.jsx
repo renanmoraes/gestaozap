@@ -92,6 +92,7 @@ export default function Chat() {
         setOnlyUnread={setOnlyUnread}
         sync={sync}
         onSync={triggerSync}
+        onMarkAllRead={() => api.post('/api/chats/read-all').catch(() => {})}
       />
 
       {/* Painel central */}

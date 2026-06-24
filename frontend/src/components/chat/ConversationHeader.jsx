@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check, FileText, Info, Phone, Users } from 'lucide-react';
 import { formatPhone } from '../../utils/phone';
 
@@ -11,9 +11,11 @@ function initialsOf(name = '') {
 
 export default function ConversationHeader({ conversation, onMarkRead, onOpenTemplate, onToggleSidebar, sidebarOpen }) {
   if (!conversation) return null;
+  const [imgError, setImgError] = useState(false);
   const isGroup = Boolean(conversation.isGroup ?? conversation.is_group);
   const name = conversation.contactName || conversation.contact_name || (isGroup ? 'Grupo sem nome' : formatPhone(conversation.phone));
-  const avatar = conversation.avatarUrl || conversation.avatar_url;
+  const rawAvatar = conversation.avatarUrl || conversation.avatar_url;
+  const avatar = rawAvatar && !imgError ? rawAvatar : null;
   const tags = Array.isArray(conversation.tags) ? conversation.tags : [];
   const unread = Number(conversation.unreadCount ?? conversation.unread_count ?? 0);
 
@@ -25,7 +27,7 @@ export default function ConversationHeader({ conversation, onMarkRead, onOpenTem
             src={avatar}
             alt={name}
             className="w-full h-full object-cover"
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            onError={() => setImgError(true)}
           />
         ) : isGroup ? <Users className="w-5 h-5" /> : initialsOf(name)}
       </div>

@@ -236,7 +236,10 @@ async function recordIncomingMessage(tenantId, io, payload) {
     .where(eq(conversations.id, conversationId));
 
   if (io) {
-    io.to(tenantId).emit('chat:message_in', { conversationId, message });
+    // contactName/preview/avatarUrl enriquecem a notificação do navegador (fora da tela)
+    io.to(tenantId).emit('chat:message_in', {
+      conversationId, message, contactName, preview, avatarUrl, isGroup,
+    });
     io.to(tenantId).emit('chat:upserted', { conversationId });
   }
 
@@ -352,6 +355,60 @@ async function markRead(tenantId, io, conversationId) {
     io.to(tenantId).emit('chat:read', { conversationId });
   }
   return updated.length > 0;
+}
+
+/** Zera o não-lido de TODAS as conversas do tenant ("marcar todas como lidas"). */
+async function markAllRead(tenantId, io) {
+  const db = getDb();
+  const updated = await db.update(conversations)
+    .set({ unreadCount: 0, updatedAt: new Date() })
+    .where(and(eq(conversations.tenantId, tenantId), sql`${conversations.unreadCount} > 0`))
+    .returning({ id: conversations.id });
+  if (io) io.to(tenantId).emit('chat:read_all', { count: updated.length });
+  return updated.length;
+}
+
+/** Total de mensagens não lidas do tenant (badge do título/aba). */
+async function getUnreadTotal(tenantId) {
+  const db = getDb();
+  const [row] = await db.select({
+    total: sql`coalesce(sum(${conversations.unreadCount}), 0)::int`,
+  }).from(conversations).where(eq(conversations.tenantId, tenantId));
+  return row?.total ?? 0;
+}
+
+/**
+ * Busca, sob demanda, a foto de perfil (getProfilePicUrl) das conversas dadas,
+ * usando a sessão ativa. As URLs do WhatsApp expiram, então gravamos best-effort
+ * e o front faz fallback p/ iniciais quando a imagem falha. Retorna { [id]: url }.
+ */
+async function fetchAvatars(tenantId, chatIds) {
+  const db = getDb();
+  const ids = (Array.isArray(chatIds) ? chatIds : []).slice(0, 60);
+  if (!ids.length) return {};
+  const rows = await db.select({ id: conversations.id, waChatId: conversations.waChatId })
+    .from(conversations)
+    .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.id, ids)));
+  const whatsapp = require('./whatsapp.service');
+  const client = whatsapp.getClientFor ? whatsapp.getClientFor(tenantId) : null;
+  if (!client) return {}; // sessão dormindo: front mantém iniciais
+  const out = {};
+  const CONC = 4;
+  for (let i = 0; i < rows.length; i += CONC) {
+    const batch = rows.slice(i, i + CONC);
+    await Promise.all(batch.map(async (r) => {
+      if (!r.waChatId) return;
+      try {
+        const url = await client.getProfilePicUrl(r.waChatId);
+        if (url) {
+          out[r.id] = url;
+          db.update(conversations).set({ avatarUrl: url, updatedAt: new Date() })
+            .where(eq(conversations.id, r.id)).catch(() => {});
+        }
+      } catch (_) { /* sem foto / privacidade / não registrado */ }
+    }));
+  }
+  return out;
 }
 
 async function updateTags(tenantId, io, conversationId, tags) {
@@ -617,6 +674,9 @@ module.exports = {
   updateMessageStatus,
   addInternalNote,
   markRead,
+  markAllRead,
+  getUnreadTotal,
+  fetchAvatars,
   updateTags,
   paginateConversations,
   paginateMessages,

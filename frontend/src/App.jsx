@@ -11,6 +11,7 @@ import { useIsMobile } from './hooks/useIsMobile';
 
 import { TenantProvider, useTenant } from './context/TenantContext';
 import WaGate from './components/WaGate';
+import { useChatNotifications } from './hooks/useChatNotifications';
 
 import Session from './pages/Session';
 import Contacts from './pages/Contacts';
@@ -291,6 +292,13 @@ function IntentConfigRoute({ prefix }) {
   return <IntentConfig />;
 }
 
+// Notificações globais (título da aba, favicon e push do navegador). Componente
+// separado para o hook rodar só na árvore autenticada, respeitando as hooks rules.
+function ChatNotifications({ basePath }) {
+  useChatNotifications(basePath);
+  return null;
+}
+
 function TenantLayout({ basePath = '' }) {
   const { isAuthenticated, isLoading, tenant, waStatus, logout, isAffiliate, hasFeature } = useTenant();
   const [open, setOpen] = useState(true);
@@ -407,6 +415,7 @@ function TenantLayout({ basePath = '' }) {
   return (
     <MobileShell prefix={prefix} sidebar={sidebar}>
       <BookingAlerts />
+      <ChatNotifications basePath={prefix} />
       <Routes>
         <Route path={`${prefix}/`} element={
           <MobileWaBlock title="Conexão WhatsApp">
