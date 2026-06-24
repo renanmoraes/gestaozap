@@ -404,12 +404,13 @@ async function fetchAvatars(tenantId, chatIds) {
       const digits = String(r.phone || '').replace(/\D/g, '');
       if (digits && digits !== '0') candidates.push(`${digits}@c.us`);
       if (r.waChatId) candidates.push(r.waChatId);
+      // NOTA: na wwebjs 1.34.6, getProfilePicUrl lança "reading 'isNewsletter'"
+      // para contatos sob identidade @lid não carregados no Store (típico de
+      // números de prospecção). O try/catch trata e cai p/ iniciais — só resolve
+      // foto de contatos que o WhatsApp consegue carregar (ex.: quem respondeu).
       let url = null;
       for (const jid of candidates) {
-        try {
-          url = await client.getProfilePicUrl(jid);
-          console.log(`[avatar-debug] ${jid} -> ${url ? 'OK' : 'null'}`);
-        } catch (e) { console.warn(`[avatar-debug] ${jid} ERROR: ${e.message}`); }
+        try { url = await client.getProfilePicUrl(jid); } catch (_) { /* segue p/ próximo */ }
         if (url) break;
       }
       if (url) {
