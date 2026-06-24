@@ -5,7 +5,7 @@ const { getQueueForTenant } = require('../config/queue');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { campaigns, sendLogs } = require('../db/schema');
 const whatsapp = require('../services/whatsapp.service');
-const { requireWAConnected } = require('../middleware/featureGate');
+const { ensureWAConnected } = require('../middleware/featureGate');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
 const { fetchEligibleContactsForSend } = require('../utils/contacts-query.util');
 const { tenantHasFeature } = require('../services/feature.service');
@@ -44,7 +44,7 @@ router.post('/preview', async (req, res) => {
   }
 });
 
-router.post('/test-number', requireWAConnected, async (req, res) => {
+router.post('/test-number', ensureWAConnected, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const { phone, message, countryCode } = req.body || {};
@@ -72,7 +72,7 @@ router.post('/test-number', requireWAConnected, async (req, res) => {
   }
 });
 
-router.post('/', requireWAConnected, async (req, res) => {
+router.post('/', ensureWAConnected, async (req, res) => {
   try {
     const db = getDb();
     const tenantId = getTenantId(req);

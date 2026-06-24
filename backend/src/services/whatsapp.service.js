@@ -123,6 +123,21 @@ async function ensureConnected(tenantId) {
   return client;
 }
 
+/**
+ * Indica se existe cache do LocalAuth para o tenant — ou seja, é possível
+ * religar a sessão sob demanda (sem QR). Usado pelo gate de disparo: se a sessão
+ * caiu por ociosidade mas há cache, o envio pode ser enfileirado e a sessão
+ * acorda no processamento, em vez de bloquear com "WhatsApp não conectado".
+ */
+function hasResumableSession(tenantId) {
+  if (!tenantId) return false;
+  try {
+    return fs.existsSync(path.join(WWEBJS_DATA_PATH, `session-${tenantId}`));
+  } catch (_) {
+    return false;
+  }
+}
+
 let idleSweeperTimer = null;
 /**
  * Varre periodicamente as sessões e derruba o Chrome das que estão ociosas
@@ -1155,6 +1170,7 @@ async function autoReconnectSessions(io) {
 module.exports = {
   initWhatsApp,
   ensureConnected,
+  hasResumableSession,
   startIdleSweeper,
   setIo,
   destroyClient,

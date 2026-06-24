@@ -78,6 +78,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # AOF (appendonly): a fila de disparos vive no Redis (Bull). Sem AOF, só há
+    # snapshot RDB e um crash do Redis/host pode perder campanhas recém-enfileiradas.
+    # Com appendonly + fsync everysec, a perda máxima é ~1s. Disparos sobrevivem a
+    # restart do backend (já) E a queda do Redis/servidor.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     environment:
       - TZ=America/Sao_Paulo
     volumes:
