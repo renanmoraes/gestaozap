@@ -12,11 +12,16 @@ import TemplateSendPicker from '../components/chat/TemplateSendPicker';
 import EmptyChat from '../components/chat/EmptyChat';
 import UpsellBanner from '../components/UpsellBanner';
 import { useTenant } from '../context/TenantContext';
+import { useKeepWaAlive } from '../hooks/useKeepWaAlive';
 
 export default function Chat() {
   const { chatId } = useParams();
   const navigate = useNavigate();
   const { hasFeature } = useTenant();
+
+  // Tela de operação: religa a sessão ao entrar e a mantém viva enquanto aberta,
+  // para receber/responder mensagens sem cair por ociosidade.
+  useKeepWaAlive();
 
   // Filtros da lista
   const [search, setSearch]         = useState('');

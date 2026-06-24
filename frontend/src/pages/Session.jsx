@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Wifi, WifiOff, Loader2, RefreshCw, Send, CheckCircle2, AlertCircle, QrCode, PhoneOff } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { useTenant } from '../context/TenantContext';
+import { useKeepWaAlive } from '../hooks/useKeepWaAlive';
 import api from '../api';
 import UpsellBanner from '../components/UpsellBanner';
 
@@ -20,6 +21,8 @@ function StatusBadge({ status }) {
 
 export default function Session() {
   const { wrongPhone } = useTenant();
+  // Tela operacional: religa ao entrar e mantém a sessão viva enquanto aberta.
+  useKeepWaAlive();
   const [status, setStatus] = useState('loading');
   const [qr, setQr] = useState(null);
   const [error, setError] = useState(null);

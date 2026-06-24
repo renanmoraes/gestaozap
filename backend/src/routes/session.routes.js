@@ -18,4 +18,17 @@ router.post('/start', (req, res) => {
   res.json({ message: 'Inicialização do WhatsApp iniciada' });
 });
 
+// Heartbeat das telas operacionais (Conversas/Sessão): religa a sessão se caiu e
+// renova o timer de ociosidade enquanto a tela está aberta, p/ o usuário não
+// ficar desconectado recebendo/respondendo mensagens.
+router.post('/keepalive', async (req, res) => {
+  const tenantId = getTenantId(req);
+  try {
+    const status = await whatsapp.keepAlive(tenantId);
+    res.json({ status });
+  } catch (_) {
+    res.json({ status: whatsapp.getStatus(tenantId) });
+  }
+});
+
 module.exports = router;

@@ -138,6 +138,26 @@ function hasResumableSession(tenantId) {
   }
 }
 
+/**
+ * Heartbeat das telas operacionais (Conversas/Sessão): mantém a sessão viva
+ * ENQUANTO o usuário está na tela — ali ele recebe/responde mensagens e não pode
+ * ficar desconectado. Se já está conectada, só renova o timer de ociosidade
+ * (evita o teardown do sweeper). Se caiu, religa do cache do LocalAuth (sem QR).
+ * Quando não há cache, não força init com QR (evita storms) — o usuário conecta
+ * pela tela de Sessão. Retorna o status resultante.
+ */
+async function keepAlive(tenantId) {
+  const state = getTenantState(tenantId);
+  if (state.client && state.status === 'connected') {
+    markActivity(tenantId);
+    return 'connected';
+  }
+  if (hasResumableSession(tenantId)) {
+    try { await ensureConnected(tenantId); } catch (_) { /* religa na próxima */ }
+  }
+  return getTenantState(tenantId).status;
+}
+
 let idleSweeperTimer = null;
 /**
  * Varre periodicamente as sessões e derruba o Chrome das que estão ociosas
@@ -1171,6 +1191,7 @@ module.exports = {
   initWhatsApp,
   ensureConnected,
   hasResumableSession,
+  keepAlive,
   startIdleSweeper,
   setIo,
   destroyClient,
