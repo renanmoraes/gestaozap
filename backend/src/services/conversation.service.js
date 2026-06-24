@@ -386,7 +386,7 @@ async function fetchAvatars(tenantId, chatIds) {
   const db = getDb();
   const ids = (Array.isArray(chatIds) ? chatIds : []).slice(0, 60);
   if (!ids.length) return {};
-  const rows = await db.select({ id: conversations.id, waChatId: conversations.waChatId })
+  const rows = await db.select({ id: conversations.id, waChatId: conversations.waChatId, phone: conversations.phone })
     .from(conversations)
     .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.id, ids)));
   const whatsapp = require('./whatsapp.service');
@@ -397,15 +397,23 @@ async function fetchAvatars(tenantId, chatIds) {
   for (let i = 0; i < rows.length; i += CONC) {
     const batch = rows.slice(i, i + CONC);
     await Promise.all(batch.map(async (r) => {
-      if (!r.waChatId) return;
-      try {
-        const url = await client.getProfilePicUrl(r.waChatId);
-        if (url) {
-          out[r.id] = url;
-          db.update(conversations).set({ avatarUrl: url, updatedAt: new Date() })
-            .where(eq(conversations.id, r.id)).catch(() => {});
-        }
-      } catch (_) { /* sem foto / privacidade / não registrado */ }
+      // waChatId costuma vir como `<id>@lid` (identidade oculta do WhatsApp), e o
+      // getProfilePicUrl não resolve foto a partir do LID — precisa do JID por
+      // telefone (`<numero>@c.us`). Tentamos o telefone primeiro, depois o waChatId.
+      const candidates = [];
+      const digits = String(r.phone || '').replace(/\D/g, '');
+      if (digits && digits !== '0') candidates.push(`${digits}@c.us`);
+      if (r.waChatId) candidates.push(r.waChatId);
+      let url = null;
+      for (const jid of candidates) {
+        try { url = await client.getProfilePicUrl(jid); } catch (_) { /* segue p/ próximo */ }
+        if (url) break;
+      }
+      if (url) {
+        out[r.id] = url;
+        db.update(conversations).set({ avatarUrl: url, updatedAt: new Date() })
+          .where(eq(conversations.id, r.id)).catch(() => {});
+      }
     }));
   }
   return out;
