@@ -6,7 +6,7 @@ const {
   clearPauseFlag,
 } = require('../config/queue');
 const { emitProgress, emitJobState } = require('./send-live.service');
-const { eq, and, or, sql, desc, gte } = require('drizzle-orm');
+const { eq, and, or, sql, desc } = require('drizzle-orm');
 const { getDb, DEFAULT_TENANT_ID } = require('../db');
 const { sendLogs, tenants, messageUsage, contracts, plans } = require('../db/schema');
 const { getConfigInt } = require('../config/platform');
@@ -306,31 +306,6 @@ function buildProcessor(io) {
           }, { failedCount, runId: sendJobId });
           job.progress(progPct);
           continue;
-        }
-
-        // JANELA SEGURA DE REENVIO: pula se este número recebeu QUALQUER campanha
-        // dentro de resend_safe_days (config). Trava DURA no envio — vale mesmo no
-        // modo "Selecionar todos (filtrados)", independente de como foi a seleção.
-        const safeDays = getConfigInt('resend_safe_days', 30);
-        if (safeDays > 0) {
-          const cutoff = new Date(Date.now() - safeDays * 86_400_000);
-          const [recentSent] = await db.select({ id: sendLogs.id }).from(sendLogs)
-            .where(and(
-              eq(sendLogs.tenantId, tenantId),
-              eq(sendLogs.phone, phone),
-              eq(sendLogs.status, 'sent'),
-              gte(sendLogs.sentAt, cutoff),
-            )).limit(1);
-          if (recentSent) {
-            metrics.recordDedupeHit(tenantId, 'resend_safe_window');
-            metrics.recordSendOutcome(tenantId, 'skipped');
-            emitProgress(io, tenantId, {
-              campaignId, jobId, phone, status: 'skipped', sentCount, total: batchTotal,
-              index: progIdx, reason: 'resend_safe_window',
-            }, { failedCount, runId: sendJobId });
-            job.progress(progPct);
-            continue;
-          }
         }
 
         // DEDUPE INSERT (mesma chave reservada → outro worker já está enviando)

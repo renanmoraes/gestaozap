@@ -10,7 +10,6 @@ const DEFAULT_CONFIGS = [
   { key: 'antiban_delay_max_ms', value: '60000', description: 'Delay máximo entre mensagens (ms)' },
   { key: 'hour_start_default', value: '8', description: 'Hora de início padrão para envios (0-23)' },
   { key: 'hour_end_default', value: '20', description: 'Hora de fim padrão para envios (0-23)' },
-  { key: 'resend_safe_days', value: '30', description: 'Janela segura (dias): bloqueia reselecionar na tela de Disparo um contato já enviado há menos desse período' },
   { key: 'max_consecutive_failures', value: '3', description: 'Falhas consecutivas antes de pausar envio' },
   { key: 'failure_pause_ms', value: '300000', description: 'Pausa após falhas consecutivas (ms) — padrão 5 min' },
   { key: 'backup_retention', value: '7', description: 'Número de backups automáticos a manter' },

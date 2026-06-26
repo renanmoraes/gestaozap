@@ -3,7 +3,6 @@ const { eq, and, inArray, sql } = require('drizzle-orm');
 const { getDb, getPool, DEFAULT_TENANT_ID } = require('../db');
 const { contacts, contactIntentTags } = require('../db/schema');
 const { normalizePhoneForWhatsApp } = require('../utils/phone.util');
-const { getConfigInt } = require('../config/platform');
 const { formatStampBr } = require('../utils/timezone.util');
 const { buildListConditions } = require('../utils/contacts-query.util');
 const { tenantHasFeature } = require('../services/feature.service');
@@ -83,27 +82,31 @@ router.get('/', async (req, res) => {
       console.warn('[contacts] intent enrich falhou:', e.message);
     }
 
-    // Enriquecimento: data do último envio (status='sent') por telefone. A tela
-    // de Disparo usa isso + resendSafeDays para bloquear a reseleção de contatos
-    // já abordados dentro da janela segura (evita reenvio/ban).
-    try {
-      const phoneList = items.map((c) => normalizePhoneForWhatsApp(c.phone)).filter(Boolean);
-      if (phoneList.length) {
-        const { rows: sentRows } = await getPool().query(
-          `SELECT phone, MAX(COALESCE(sent_at, dispatched_at)) AS last_sent_at
-             FROM send_logs
-            WHERE tenant_id = $1 AND status = 'sent' AND phone = ANY($2::text[])
-            GROUP BY phone`,
-          [tenantId, phoneList],
-        );
-        const lastByPhone = new Map(sentRows.map((r) => [r.phone, r.last_sent_at]));
-        items = items.map((c) => ({
-          ...c,
-          lastSentAt: lastByPhone.get(normalizePhoneForWhatsApp(c.phone)) || null,
-        }));
+    // Enriquecimento: marca quem já recebeu ESTE template (campanha). A tela de
+    // Disparo usa isso para bloquear a reseleção — o bloqueio é POR CAMPANHA:
+    // outro template/assunto sempre libera o contato. Sem campaignId, ninguém é
+    // bloqueado (a tela ainda não escolheu template).
+    const campaignId = req.query.campaignId || null;
+    if (campaignId) {
+      try {
+        const phoneList = items.map((c) => normalizePhoneForWhatsApp(c.phone)).filter(Boolean);
+        if (phoneList.length) {
+          const { rows: sentRows } = await getPool().query(
+            `SELECT DISTINCT phone
+               FROM send_logs
+              WHERE tenant_id = $1 AND campaign_id = $2 AND status = 'sent'
+                AND phone = ANY($3::text[])`,
+            [tenantId, campaignId, phoneList],
+          );
+          const sentSet = new Set(sentRows.map((r) => r.phone));
+          items = items.map((c) => ({
+            ...c,
+            alreadyInCampaign: sentSet.has(normalizePhoneForWhatsApp(c.phone)),
+          }));
+        }
+      } catch (e) {
+        console.warn('[contacts] campaign-sent enrich falhou:', e.message);
       }
-    } catch (e) {
-      console.warn('[contacts] last-sent enrich falhou:', e.message);
     }
 
     res.json({
@@ -114,7 +117,6 @@ router.get('/', async (req, res) => {
       totalPages: Math.max(1, Math.ceil(total / limit)),
       optedOutCount,
       tags,
-      resendSafeDays: getConfigInt('resend_safe_days', 30),
     });
   } catch (err) {
     console.error('contacts get:', err);

@@ -205,7 +205,6 @@ router.get('/config', async (req, res) => {
     batchPauseMs:      getConfigInt('batch_pause_ms', 900_000),
     hourStart:         getConfigInt('hour_start_default', 8),
     hourEnd:           getConfigInt('hour_end_default', 20),
-    resendSafeDays:    getConfigInt('resend_safe_days', 30),
   });
 });
 

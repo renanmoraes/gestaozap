@@ -59,9 +59,6 @@ export default function SendPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [sendConfig, setSendConfig] = useState(null);
   const [activeDispatches, setActiveDispatches] = useState({});
-  // Janela segura (dias) p/ bloquear reseleção de contato já enviado. Vem do backend
-  // (config 'resend_safe_days', editável no admin); 30 é só o fallback inicial.
-  const [resendSafeDays, setResendSafeDays] = useState(30);
 
   useEffect(() => {
     api.get('/api/campaigns').then((r) => setCampaigns(r.data));
@@ -87,6 +84,8 @@ export default function SendPage() {
           page: pageNum,
           limit: PAGE_SIZE,
           optedOut: 'hide',
+          // Bloqueio é por campanha: o backend marca quem já recebeu ESTE template.
+          ...(campaignId ? { campaignId } : {}),
           ...(selection.tagFilter ? { tag: selection.tagFilter } : {}),
           ...(searchDebounced ? { q: searchDebounced } : {}),
         },
@@ -95,13 +94,12 @@ export default function SendPage() {
       setContacts((prev) => (append ? [...prev, ...items] : items));
       setTotalEligible(res.data.total ?? 0);
       setAllTags(res.data.tags || []);
-      if (res.data.resendSafeDays != null) setResendSafeDays(res.data.resendSafeDays);
     } finally {
       loadingRef.current = false;
       setLoadingList(false);
       setLoadingMore(false);
     }
-  }, [selection.tagFilter, searchDebounced]);
+  }, [campaignId, selection.tagFilter, searchDebounced]);
 
   useEffect(() => {
     setPage(1);
@@ -114,7 +112,7 @@ export default function SendPage() {
         ? { ...EMPTY_SELECTION, tagFilter: s.tagFilter, search: s.search }
         : s
     ));
-  }, [selection.tagFilter, searchDebounced]);
+  }, [campaignId, selection.tagFilter, searchDebounced]);
 
   useEffect(() => {
     loadContacts(1, false);
@@ -199,19 +197,14 @@ export default function SendPage() {
     isAllFiltered ? !selection.excludeIds.has(id) : selection.contactIds.has(id)
   );
 
-  // Contato enviado dentro da janela segura → não pode ser reselecionado.
+  // Bloqueio é POR CAMPANHA: contato que já recebeu o template selecionado não pode
+  // ser reselecionado (mesma trava do envio). Outro template/assunto sempre libera.
   // Retorna null se livre, ou { badge, tooltip } se bloqueado.
   const getSendBlock = (c) => {
-    if (!c.lastSentAt || resendSafeDays <= 0) return null;
-    const sentMs = new Date(c.lastSentAt).getTime();
-    if (!Number.isFinite(sentMs)) return null;
-    const daysSince = Math.floor((Date.now() - sentMs) / 86_400_000);
-    if (daysSince >= resendSafeDays) return null; // fora da janela: liberado
-    const releasesIn = Math.max(1, resendSafeDays - daysSince);
-    const ago = daysSince <= 0 ? 'hoje' : `há ${daysSince} dia${daysSince > 1 ? 's' : ''}`;
+    if (!c.alreadyInCampaign) return null;
     return {
-      badge: daysSince <= 0 ? 'enviado hoje' : `enviado ${daysSince}d`,
-      tooltip: `Não pode selecionar: enviado ${ago}. Liberado para reenvio em ${releasesIn} dia${releasesIn > 1 ? 's' : ''} (janela segura de ${resendSafeDays} dias).`,
+      badge: 'já recebeu',
+      tooltip: 'Já recebeu este template. Para enviar um novo assunto, selecione outro template.',
     };
   };
 
