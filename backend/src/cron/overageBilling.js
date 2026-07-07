@@ -1,8 +1,12 @@
+const cron = require('node-cron');
 const { eq, and, sql } = require('drizzle-orm');
 const { getDb } = require('../db');
 const { contracts, paymentRecords } = require('../db/schema');
 const { computeOverage } = require('../utils/usage.util');
-const { getMonthKeyBr } = require('../utils/timezone.util');
+const { APP_TIMEZONE, getMonthKeyBr } = require('../utils/timezone.util');
+
+/** Dia 1 de cada mês, 1h em Brasília. */
+const OVERAGE_BILLING_CRON = '0 1 1 * *';
 
 function previousMonthKey(date = new Date()) {
   const parts = getMonthKeyBr(date).split('-').map(Number);
@@ -68,32 +72,25 @@ async function billOverageForPreviousMonth() {
   return { refMonth, created };
 }
 
-function msUntilFirstOfMonth(hour = 1) {
-  const { getDatePartsBr } = require('../utils/timezone.util');
-  const { year, month, day, hour: h, minute, second } = getDatePartsBr();
-  const currentSec = Number(h) * 3600 + Number(minute) * 60 + Number(second);
-  const dayNum = Number(day);
-  const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
-  const daysUntil = dayNum === 1 && currentSec < hour * 3600
-    ? 0
-    : (daysInMonth - dayNum + 1);
-  let diffSec = daysUntil * 86400 + (hour * 3600) - currentSec;
-  if (diffSec <= 0) diffSec += 30 * 86400;
-  return diffSec * 1000;
-}
+let overageBillingTask = null;
 
 function scheduleOverageBilling() {
-  const run = async () => {
+  if (overageBillingTask) return overageBillingTask;
+
+  overageBillingTask = cron.schedule(OVERAGE_BILLING_CRON, async () => {
     try {
       await billOverageForPreviousMonth();
     } catch (err) {
       console.error('[cron] overage billing falhou:', err.message);
-    } finally {
-      setTimeout(run, msUntilFirstOfMonth(1));
     }
-  };
-  setTimeout(run, msUntilFirstOfMonth(1));
-  console.log('[cron] cobrança de excedente agendada (dia 1 de cada mês, ~1h BR)');
+  }, { timezone: APP_TIMEZONE });
+
+  console.log('[cron] cobrança de excedente agendada (dia 1 de cada mês, 1h BR)');
+  return overageBillingTask;
 }
 
-module.exports = { scheduleOverageBilling, billOverageForPreviousMonth };
+module.exports = {
+  OVERAGE_BILLING_CRON,
+  scheduleOverageBilling,
+  billOverageForPreviousMonth,
+};
